@@ -95,9 +95,14 @@ Switching providers = updating the symlink. That's the whole trick.
 
 ---
 
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
 <div align="center">
 
-MIT License · Built by [lizzyman04](https://github.com/lizzyman04)  
 Issues and PRs welcome — [open one here](https://github.com/lizzyman04/claude-code-switcher/issues)
 
 </div>

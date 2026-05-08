@@ -11,9 +11,68 @@ RAW_BASE="https://raw.githubusercontent.com/lizzyman04/claude-code-switcher/main
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$PROFILES_DIR"
 
-echo "Installing ccs to $INSTALL_DIR/$SCRIPT_NAME..."
+echo "Building ccs..."
 
-curl -fsSL "$RAW_BASE/ccs.sh" -o "$INSTALL_DIR/$SCRIPT_NAME"
+# Download all source files and combine into a single script
+{
+  # Header and core functions
+  curl -fsSL "$RAW_BASE/src/_core.sh"
+  echo ""
+
+  # All command implementations
+  curl -fsSL "$RAW_BASE/src/cmd_list.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_switch.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_current.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_add.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_edit.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_key.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_remove.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_test.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_run.sh"
+  echo ""
+  curl -fsSL "$RAW_BASE/src/_help.sh"
+  echo ""
+
+  # Main entry point
+  cat << 'ENTRY'
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CCS_DIR="$HOME/.config/claude-profiles"
+PROFILES_DIR="$CCS_DIR/profiles"
+ACTIVE_LINK="$CCS_DIR/active"
+
+mkdir -p "$PROFILES_DIR"
+
+case "${1:-}" in
+  list|"") cmd_list ;;
+  switch)  cmd_switch "${2:-}" ;;
+  current) cmd_current ;;
+  add)     cmd_add "${2:-}" ;;
+  edit)    cmd_edit "${2:-}" ;;
+  key)     cmd_key "${2:-}" ;;
+  remove)  cmd_remove "${2:-}" ;;
+  test)    cmd_test ;;
+  run)     cmd_run "${@:2}" ;;
+  help|--help|-h) cmd_help ;;
+  *)
+    echo "Unknown command: $1"
+    echo ""
+    cmd_list
+    ;;
+esac
+ENTRY
+} > "$INSTALL_DIR/$SCRIPT_NAME"
+
 chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
 
 echo "Installing default profiles..."
