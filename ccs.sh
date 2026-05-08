@@ -45,8 +45,10 @@ case "${1:-}" in
   run)     cmd_run "${@:2}" ;;
   help|--help|-h) cmd_help ;;
   *)
-    echo "Unknown command: $1"
-    echo ""
-    cmd_list
+    if [[ -f "$PROFILES_DIR/$1.json" ]]; then
+      cmd_switch "$1"
+    else
+      cmd_help
+    fi
     ;;
 esac

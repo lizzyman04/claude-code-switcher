@@ -35,6 +35,7 @@ Done. Your providers are listed. The installer handles profiles, the active syml
 | Command | What it does |
 | :--- | :--- |
 | `ccs` | List all profiles |
+| `ccs <name>` | Switch to provider by name (shorthand for `switch`) |
 | `ccs switch <name>` | Set the active provider |
 | `ccs current` | Show active profile (API key hidden) |
 | `ccs add <name>` | Add a new provider interactively |
