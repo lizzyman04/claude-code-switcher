@@ -1,0 +1,103 @@
+<div align="center">
+
+# `ccs` — Claude Code Switcher
+
+**Switch LLM providers in Claude Code with one command.**  
+No config files touched. No mess. No restarts.
+
+[![bash](https://img.shields.io/badge/shell-bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![requires jq](https://img.shields.io/badge/requires-jq-333?style=flat-square&logo=json&logoColor=white)](https://stedolan.github.io/jq/)
+[![requires curl](https://img.shields.io/badge/requires-curl-073551?style=flat-square&logo=curl&logoColor=white)](https://curl.se/)
+[![license MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+</div>
+
+---
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lizzyman04/claude-code-switcher/main/install.sh | bash
+```
+
+Open a new terminal, then:
+
+```bash
+ccs
+```
+
+Done. Your providers are listed. The installer handles profiles, the active symlink, and shell aliases — zero manual setup.
+
+---
+
+## Commands
+
+| Command | What it does |
+| :--- | :--- |
+| `ccs` | List all profiles |
+| `ccs switch <name>` | Set the active provider |
+| `ccs current` | Show active profile (API key hidden) |
+| `ccs add <name>` | Add a new provider interactively |
+| `ccs key <name>` | Update an API key in seconds |
+| `ccs edit <name>` | Open a profile in `$EDITOR` |
+| `ccs remove <name>` | Delete a profile |
+| `ccs test` | Ping the active provider — real API call |
+| `ccs run <name> [args]` | One-shot: run Claude with a specific provider |
+| `ccs --help` | Show help |
+
+---
+
+## Shell Aliases
+
+The installer writes these to your `.bashrc` / `.zshrc`:
+
+```bash
+alias claude='claude --settings $HOME/.config/claude-profiles/active'
+alias deepseek='ccs run deepseek'
+alias openai='ccs run openai'
+```
+
+After `ccs switch deepseek`, `claude` talks to DeepSeek. No flags, no env vars.
+
+---
+
+## How It Works
+
+Profiles are JSON files in `~/.config/claude-profiles/profiles/`.  
+A symlink at `~/.config/claude-profiles/active` points to whichever profile is current.
+
+Claude is always invoked as:
+
+```
+claude --settings ~/.config/claude-profiles/active
+```
+
+`~/.claude/` is **never touched.** `ccs` lives entirely in `~/.config/claude-profiles/`.
+
+```
+~/.config/claude-profiles/
+├── profiles/
+│   ├── anthropic.json
+│   ├── deepseek.json
+│   └── openai.json
+└── active -> profiles/anthropic.json   ← just a symlink
+```
+
+Switching providers = updating the symlink. That's the whole trick.
+
+---
+
+## Requirements
+
+- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** — in `PATH`
+- **[jq](https://stedolan.github.io/jq/)** — for `current`, `key`, and `test`
+- **[curl](https://curl.se/)** — for `test` and the installer
+
+---
+
+<div align="center">
+
+MIT License · Built by [lizzyman04](https://github.com/lizzyman04)  
+Issues and PRs welcome — [open one here](https://github.com/lizzyman04/claude-code-switcher/issues)
+
+</div>
