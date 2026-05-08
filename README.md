@@ -16,9 +16,25 @@ No config files touched. No mess. No restarts.
 
 ## Install
 
+### Linux / macOS
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lizzyman04/claude-code-switcher/main/install.sh | bash
 ```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/lizzyman04/claude-code-switcher/main/install.ps1 | iex
+```
+
+Then add this to your PowerShell profile (`$PROFILE`):
+
+```powershell
+Set-Alias ccs "$env:USERPROFILE\.local\bin\ccs.ps1"
+```
+
+---
 
 Open a new terminal, then:
 
@@ -43,6 +59,8 @@ Done. Your providers are listed. The installer handles profiles, the active syml
 | `ccs edit <name>` | Open a profile in `$EDITOR` |
 | `ccs remove <name>` | Delete a profile |
 | `ccs test` | Ping the active provider — real API call |
+| `ccs run <name> [args]` | Run claude with a named profile |
+| `ccs run --provider <p> --model <m>` | Run without a saved profile (ephemeral) |
 | `ccs --help` | Show help |
 
 ---
@@ -90,6 +108,7 @@ Switching providers = updating the symlink. That's the whole trick.
 - **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** — in `PATH`
 - **[jq](https://stedolan.github.io/jq/)** — for `current`, `key`, and `test`
 - **[curl](https://curl.se/)** — for `test` and the installer
+- **PowerShell 5.1+** — Windows only
 
 ---
 
