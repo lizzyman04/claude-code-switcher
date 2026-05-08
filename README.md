@@ -42,7 +42,6 @@ Done. Your providers are listed. The installer handles profiles, the active syml
 | `ccs edit <name>` | Open a profile in `$EDITOR` |
 | `ccs remove <name>` | Delete a profile |
 | `ccs test` | Ping the active provider — real API call |
-| `ccs run <name> [args]` | One-shot: run Claude with a specific provider |
 | `ccs --help` | Show help |
 
 ---
@@ -54,7 +53,6 @@ The installer writes these to your `.bashrc` / `.zshrc`:
 ```bash
 alias claude='claude --settings $HOME/.config/claude-profiles/active'
 alias deepseek='ccs run deepseek'
-alias openai='ccs run openai'
 ```
 
 After `ccs switch deepseek`, `claude` talks to DeepSeek. No flags, no env vars.
@@ -78,8 +76,7 @@ claude --settings ~/.config/claude-profiles/active
 ~/.config/claude-profiles/
 ├── profiles/
 │   ├── anthropic.json
-│   ├── deepseek.json
-│   └── openai.json
+│   └── deepseek.json
 └── active -> profiles/anthropic.json   ← just a symlink
 ```
 

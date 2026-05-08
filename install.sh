@@ -77,7 +77,7 @@ chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
 
 echo "Installing default profiles..."
 
-for provider in anthropic deepseek openai; do
+for provider in anthropic deepseek; do
   curl -fsSL "$RAW_BASE/profiles/$provider.json" -o "$PROFILES_DIR/$provider.json"
 done
 
@@ -104,7 +104,6 @@ if [[ -n "$SHELL_CONFIG" ]]; then
 # ccs — Claude Code Switcher aliases
 alias claude='claude --settings $HOME/.config/claude-profiles/active'
 alias deepseek='ccs run deepseek'
-alias openai='ccs run openai'
 ALIASES
     echo ""
     echo "Aliases added to $SHELL_CONFIG"
