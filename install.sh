@@ -38,6 +38,8 @@ echo "Building ccs..."
   echo ""
   curl -fsSL "$RAW_BASE/src/cmd_run.sh"
   echo ""
+  curl -fsSL "$RAW_BASE/src/cmd_clean.sh"
+  echo ""
   curl -fsSL "$RAW_BASE/src/_help.sh"
   echo ""
 
@@ -63,6 +65,7 @@ case "${1:-}" in
   remove)  cmd_remove "${2:-}" ;;
   test)    cmd_test ;;
   run)     cmd_run "${@:2}" ;;
+  clean)   cmd_clean "${@:2}" ;;
   help|--help|-h) cmd_help ;;
   *)
     if [[ -f "$PROFILES_DIR/$1.json" ]]; then

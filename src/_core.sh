@@ -34,7 +34,6 @@ _ensure_aliases() {
       echo "# ccs aliases" >> "$shell_config"
       echo "alias claude='claude --settings \$HOME/.config/claude-profiles/active'" >> "$shell_config"
       echo "alias deepseek='ccs run deepseek'" >> "$shell_config"
-      echo "alias openai='ccs run openai'" >> "$shell_config"
       echo "Done. Run: source $shell_config"
     fi
   fi

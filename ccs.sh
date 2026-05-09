@@ -30,6 +30,8 @@ source "$SCRIPT_DIR/src/cmd_remove.sh"
 source "$SCRIPT_DIR/src/cmd_test.sh"
 # shellcheck source=src/cmd_run.sh
 source "$SCRIPT_DIR/src/cmd_run.sh"
+# shellcheck source=src/cmd_clean.sh
+source "$SCRIPT_DIR/src/cmd_clean.sh"
 
 mkdir -p "$PROFILES_DIR"
 
@@ -43,6 +45,7 @@ case "${1:-}" in
   remove)  cmd_remove "${2:-}" ;;
   test)    cmd_test ;;
   run)     cmd_run "${@:2}" ;;
+  clean)   cmd_clean "${@:2}" ;;
   help|--help|-h) cmd_help ;;
   *)
     if [[ -f "$PROFILES_DIR/$1.json" ]]; then

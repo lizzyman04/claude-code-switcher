@@ -12,7 +12,7 @@ Write-Host "Installing ccs to $INSTALL_DIR\ccs.ps1..."
 Invoke-WebRequest -Uri "$RAW_BASE/src/ccs.ps1" -OutFile "$INSTALL_DIR\ccs.ps1"
 
 Write-Host "Installing default profiles..."
-@("anthropic", "deepseek", "openai") | ForEach-Object {
+@("anthropic", "deepseek") | ForEach-Object {
     Invoke-WebRequest -Uri "$RAW_BASE/profiles/$_.json" -OutFile "$PROFILES_DIR\$_.json"
 }
 

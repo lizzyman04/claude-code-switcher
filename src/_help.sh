@@ -13,6 +13,7 @@ Commands:
   key <name>        Update API key for a profile
   remove <name>     Delete a profile
   test              Test active profile connection
+  clean [name]      Launch Claude Code with zero custom agents/skills
 
 Available providers:
 USAGE

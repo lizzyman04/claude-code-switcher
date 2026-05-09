@@ -61,6 +61,7 @@ Done. Your providers are listed. The installer handles profiles, the active syml
 | `ccs test` | Ping the active provider — real API call |
 | `ccs run <name> [args]` | Run claude with a named profile |
 | `ccs run --provider <p> --model <m>` | Run without a saved profile (ephemeral) |
+| `ccs clean [name]` | Launch Claude Code with no custom agents/skills |
 | `ccs --help` | Show help |
 
 ---
@@ -75,6 +76,19 @@ alias deepseek='ccs run deepseek'
 ```
 
 After `ccs switch deepseek`, `claude` talks to DeepSeek. No flags, no env vars.
+
+---
+
+## Clean Mode
+
+Need a session without your custom agents, skills, and memory files eating context tokens?
+
+```bash
+ccs clean           # clean session with active provider
+ccs clean deepseek  # clean session with DeepSeek
+```
+
+Everything is restored when you exit. Nothing is deleted.
 
 ---
 
@@ -105,8 +119,8 @@ Switching providers = updating the symlink. That's the whole trick.
 
 ## Requirements
 
-- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** — in `PATH`
-- **[jq](https://stedolan.github.io/jq/)** — for `current`, `key`, and `test`
+- **[Claude Code](https://code.claude.com/docs)** — in `PATH`
+- **[jq](https://jqlang.org/)** — for `current`, `key`, and `test`
 - **[curl](https://curl.se/)** — for `test` and the installer
 - **PowerShell 5.1+** — Windows only
 
