@@ -19,7 +19,16 @@ cmd_clean() {
     echo "ccs: disabled skills for this session"
   fi
 
-  trap '[[ -n "$RESTORE_AGENTS" ]] && mv "$AGENTS_DISABLED" "$AGENTS_DIR" 2>/dev/null; [[ -n "$RESTORE_SKILLS" ]] && mv "$SKILLS_DISABLED" "$SKILLS_DIR" 2>/dev/null' EXIT
+  _cleanup_clean() {
+    if [[ -n "${RESTORE_AGENTS:-}" ]] && [[ -d "$AGENTS_DISABLED" ]]; then
+      mv "$AGENTS_DISABLED" "$AGENTS_DIR" 2>/dev/null && echo "ccs: restored agents"
+    fi
+    if [[ -n "${RESTORE_SKILLS:-}" ]] && [[ -d "$SKILLS_DISABLED" ]]; then
+      mv "$SKILLS_DISABLED" "$SKILLS_DIR" 2>/dev/null && echo "ccs: restored skills"
+    fi
+  }
+
+  trap _cleanup_clean EXIT
 
   local first_arg="${1:-}"
 
@@ -34,9 +43,9 @@ cmd_clean() {
     path="$(_profile_path "$first_arg")"
     [[ -f "$path" ]] || { echo "error: profile '$first_arg' not found" >&2; exit 1; }
     shift
-    exec claude --settings "$path" "$@"
+    claude --settings "$path" "$@"
   else
     [[ -L "$ACTIVE_LINK" ]] || { echo "error: no active profile (run: ccs switch <name>)" >&2; exit 1; }
-    exec claude --settings "$ACTIVE_LINK" "$@"
+    claude --settings "$ACTIVE_LINK" "$@"
   fi
 }
