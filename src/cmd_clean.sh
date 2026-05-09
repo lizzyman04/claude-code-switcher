@@ -28,7 +28,7 @@ cmd_clean() {
     fi
   }
 
-  trap _cleanup_clean EXIT
+  trap _cleanup_clean EXIT SIGINT
 
   local first_arg="${1:-}"
 
