@@ -13,83 +13,23 @@ mkdir -p "$PROFILES_DIR"
 
 echo "Building ccs..."
 
-# Download all source files and combine into a single script
+# src/MANIFEST lists the source files, in order. It is the same list ccs.sh
+# sources, so a new file is registered in exactly one place.
+MANIFEST="$(curl -fsSL "$RAW_BASE/src/MANIFEST")"
+
 {
-  # Header and core functions
-  curl -fsSL "$RAW_BASE/src/_core.sh"
+  echo "#!/usr/bin/env bash"
+  echo ""
+  echo "set -euo pipefail"
   echo ""
 
-  # All command implementations
-  curl -fsSL "$RAW_BASE/src/cmd_list.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_switch.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_current.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_add.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_edit.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_key.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_remove.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_test.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_run.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/cmd_clean.sh"
-  echo ""
-  curl -fsSL "$RAW_BASE/src/_help.sh"
-  echo ""
+  while IFS= read -r src; do
+    [[ -z "$src" || "$src" == \#* ]] && continue
+    curl -fsSL "$RAW_BASE/src/$src"
+    echo ""
+  done <<< "$MANIFEST"
 
-  # Main entry point
-  cat << 'ENTRY'
-#!/usr/bin/env bash
-
-set -euo pipefail
-
-CCS_DIR="$HOME/.config/claude-profiles"
-PROFILES_DIR="$CCS_DIR/profiles"
-ACTIVE_LINK="$CCS_DIR/active"
-
-mkdir -p "$PROFILES_DIR"
-
-case "${1:-}" in
-  list|"") cmd_list ;;
-  switch)  cmd_switch "${2:-}" ;;
-  current) cmd_current ;;
-  add)     cmd_add "${2:-}" ;;
-  edit)    cmd_edit "${2:-}" ;;
-  key)     cmd_key "${2:-}" ;;
-  remove)  cmd_remove "${2:-}" ;;
-  test)    cmd_test ;;
-  run)     cmd_run "${@:2}" ;;
-  clean)
-    if [[ "${2:-}" == "--restore" ]]; then
-      if [[ -d "$HOME/.claude/agents.ccs-disabled" ]]; then
-        mv "$HOME/.claude/agents.ccs-disabled" "$HOME/.claude/agents"
-        echo "ccs: restored agents"
-      fi
-      if [[ -d "$HOME/.claude/skills.ccs-disabled" ]]; then
-        mv "$HOME/.claude/skills.ccs-disabled" "$HOME/.claude/skills"
-        echo "ccs: restored skills"
-      fi
-      echo "ccs: cleanup complete"
-    else
-      cmd_clean "${@:2}"
-    fi
-    ;;
-  help|--help|-h) cmd_help ;;
-  *)
-    if [[ -f "$PROFILES_DIR/$1.json" ]]; then
-      cmd_switch "$1"
-    else
-      cmd_help
-    fi
-    ;;
-esac
-ENTRY
+  echo 'ccs_main "$@"'
 } > "$INSTALL_DIR/$SCRIPT_NAME"
 
 chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
