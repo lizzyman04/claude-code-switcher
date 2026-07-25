@@ -231,6 +231,31 @@ _ensure_shared() {
   done < <(_shared_items)
 }
 
+# Make an isolated home usable: 0700 dir, shared config linked in, credentials
+# locked down. Idempotent, so it runs on every switch and self-heals.
+_prepare_home() {
+  local home="$1"
+  _is_native_home "$home" && return 0
+  mkdir -p "$home"
+  chmod 700 "$home"
+  _link_shared "$home"
+  # Claude Code writes this 0600 itself, but a restore from backup or a copy
+  # between machines can loosen it.
+  [[ -f "$home/.credentials.json" ]] && chmod 600 "$home/.credentials.json"
+  return 0
+}
+
+# A custom CLAUDE_CONFIG_DIR turns off Claude Code's background-agent daemon
+# (`if (process.env.CLAUDE_CONFIG_DIR || ...) return false`) and its service
+# installer refuses outright. That makes isolated accounts genuinely less
+# capable than the default one, so say so at the moment of switching.
+_warn_isolated() {
+  _is_native_home "$1" && return 0
+  echo "ccs: background agents and the daemon are unavailable on isolated" >&2
+  echo "ccs: accounts (Claude Code requires the default config dir)" >&2
+  return 0
+}
+
 _link_shared() {
   local home="$1" item
   _is_native_home "$home" && return 0

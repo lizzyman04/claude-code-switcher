@@ -14,15 +14,23 @@ cmd_run() {
     esac
   done
 
-  # Existing profile-name mode (backward compatible)
+  # Existing profile-name mode (backward compatible), now also accepting
+  # <provider>@<account>. This path sets CLAUDE_CONFIG_DIR itself, in the same
+  # process, so it works even when the shell integration is not loaded -- the
+  # documented escape hatch when `claude` is not the ccs function.
   if [[ -z "$provider" && $ephemeral -eq 0 ]]; then
-    local name="${1:-}"
-    [[ -z "$name" ]] && { echo "usage: ccs run <name> [claude args...]" >&2; exit 1; }
-    local path
-    path="$(_profile_path "$name")"
-    [[ -f "$path" ]] || { echo "error: profile '$name' not found" >&2; exit 1; }
+    local spec="${1:-}"
+    [[ -z "$spec" ]] && { echo "usage: ccs run <provider>[@<account>] [claude args...]" >&2; exit 1; }
+    _resolve_spec_or_die "$spec"
+    local path home
+    path="$(_account_path "$SPEC_PROVIDER" "$SPEC_ACCOUNT")"
+    home="$(_resolve_home "$SPEC_PROVIDER" "$SPEC_ACCOUNT")"
     shift
-    exec claude --settings "$path" "$@"
+    if _is_native_home "$home"; then
+      exec claude --settings "$path" "$@"
+    fi
+    _prepare_home "$home"
+    exec env CLAUDE_CONFIG_DIR="$home" claude --settings "$path" "$@"
   fi
 
   # Dynamic provider mode
