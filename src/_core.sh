@@ -216,24 +216,52 @@ _shared_items() {
     [[ -e "$DEFAULT_HOME/$i" ]] && echo "$i"
   done
   for i in "$DEFAULT_HOME"/*.md; do
-    [[ -f "$i" ]] && basename "$i"
+    # ${i##*/} rather than basename: this runs on every switch now, and one fork
+    # per memory file is measurable next to the rest of a switch.
+    [[ -f "$i" ]] && echo "${i##*/}"
   done
   # See _shell_rc_files: never leak the last test's exit status to the caller.
   return 0
 }
 
 # Link, but never clobber: if something real sits where a link belongs, say so
-# and leave it. Idempotent, so it can run on every switch to self-heal.
+# and leave it. Idempotent, and repairs a dangling link as well as a missing one.
 _relink() {
   local target="$1" link="$2"
   if [[ -L "$link" ]]; then
-    [[ "$(readlink "$link")" == "$target" ]] || ln -sfn "$target" "$link"
+    # -ef compares device and inode through the link, so an already-correct link
+    # costs no subprocess. _ensure_shared runs on every switch now, making this
+    # the hot path -- readlink here would fork once per shared item per switch.
+    # A dangling link fails -ef and gets recreated.
+    [[ "$link" -ef "$target" ]] && return 0
+    ln -sfn "$target" "$link"
   elif [[ -e "$link" ]]; then
     echo "ccs: warning: $link is a real file, not a shared link — leaving it alone" >&2
     return 1
   else
     ln -sfn "$target" "$link"
   fi
+}
+
+# Classify one entry, for doctor. A shared item is the hinge every isolated home
+# hangs off: while shared/<item> is missing, every home's link to it dangles and
+# that account silently loses the item.
+#   ok        a link resolving to the canonical file under ~/.claude
+#   missing   nothing there at all -- the state doctor used to report as intact
+#   dangling  a link whose target is gone
+#   stale     a link pointing somewhere other than ~/.claude/<item>
+#   real      real content where a link belongs; never clobbered, so never auto-repaired
+_shared_status() {
+  local item="$1" link="$SHARED_DIR/$item" target="$DEFAULT_HOME/$item"
+  if [[ -L "$link" ]]; then
+    [[ -e "$link" ]] || { echo dangling; return 0; }
+    [[ "$link" -ef "$target" ]] && echo ok || echo stale
+  elif [[ -e "$link" ]]; then
+    echo real
+  else
+    echo missing
+  fi
+  return 0
 }
 
 _ensure_shared() {
@@ -247,7 +275,12 @@ _ensure_shared() {
 }
 
 # Make an isolated home usable: 0700 dir, shared config linked in, credentials
-# locked down. Idempotent, so it runs on every switch and self-heals.
+# locked down. Idempotent, so it runs on every switch.
+#
+# It returns early for the native home, so it repairs an isolated home's links
+# only. Rebuilding shared/ itself is _ensure_shared's job, which cmd_switch calls
+# unconditionally -- otherwise switching to the native account, where the user
+# spends most of their time, would repair nothing.
 _prepare_home() {
   local home="$1"
   _is_native_home "$home" && return 0

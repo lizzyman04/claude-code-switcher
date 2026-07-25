@@ -193,6 +193,12 @@ symlink, `active-home`, points at that account's config directory.
 Switching a **provider** updates `active`. Switching an **account** also updates
 `active-home`, and the shell function exports it as `CLAUDE_CONFIG_DIR`.
 
+Every switch also rebuilds `shared/`, from **any** account including
+`anthropic@main`, so a link that went missing is repaired by the next `ccs <p>`.
+`ccs doctor` reports anything it cannot repair on its own — in particular real
+content sitting where a shared link belongs, which is never overwritten because
+your version and the canonical one may differ.
+
 ### Why accounts need a whole directory
 
 For DeepSeek or OpenRouter an account is just a different API key, and that fits
