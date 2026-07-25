@@ -257,9 +257,30 @@ account says so.
 | `projects/` (so `--resume` works) | `sessions/` (live-PID registry) |
 | `history.jsonl`, `todos/`, `session-env/` | `shell-snapshots/`, `file-history/` |
 
-One consequence worth knowing: `.claude.json` holds the account identity, so it
-cannot be shared — and it also stores per-project trust flags. A second account
-therefore asks you to trust each folder once.
+Two consequences worth knowing, both from `.claude.json`. It holds the account
+identity, so it cannot be shared — and it also stores:
+
+- **per-project trust flags**, so a second account asks you to trust each folder
+  once;
+- **user-scope MCP servers**, which therefore do **not** follow an account
+  switch. An account you just created starts with none, and `claude mcp add` on
+  one account does not reach the other.
+
+The MCP gap is silent during a session — a server is simply missing — so
+`ccs doctor` prints a per-account count and warns when accounts of the same
+provider disagree:
+
+```
+MCP servers
+  note  anthropic@main: 3 user-scope server(s)
+  note  anthropic@second: 0 user-scope server(s)
+  warn  anthropic: accounts have different MCP servers — they live in
+        .claude.json, which is per-account, so they do not follow a switch.
+```
+
+`ccs` deliberately does not copy them across: merging server definitions between
+config dirs can duplicate or clobber them, so adding a server to the second
+account stays your call (`claude mcp add <name> …`).
 
 ### Upgrading from a single-account install
 

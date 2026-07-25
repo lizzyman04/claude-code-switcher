@@ -190,6 +190,25 @@ _account_email() {
   fi
 }
 
+# User-scope MCP server names for a home, sorted, one per line.
+#
+# These live in .claude.json, which cannot be shared because it carries
+# oauthAccount -- the account identity itself. So they do not follow an account
+# switch, and a freshly created account starts with none. ccs only reports the
+# divergence; it does not sync it, because merging server definitions between
+# config dirs can duplicate or clobber them.
+#
+# Prints nothing when jq is absent: the caller distinguishes that case, since
+# "no jq" and "no servers" must not look alike.
+_mcp_servers() {
+  local cj
+  cj="$(_config_json "$1")"
+  [[ -f "$cj" ]] || return 0
+  command -v jq &>/dev/null || return 0
+  jq -r '(.mcpServers // {}) | keys[]' "$cj" 2>/dev/null | LC_ALL=C sort
+  return 0
+}
+
 # ── shared configuration ─────────────────────────────────────────────────────
 
 # Items linked from ~/.claude into every isolated home.
