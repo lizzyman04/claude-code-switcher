@@ -212,6 +212,25 @@ function _LinkItem([string]$target, [string]$link) {
     }
 }
 
+# Classify one entry, for doctor. A shared item is the hinge every isolated home
+# hangs off: while shared\<item> is missing, every home's link to it is broken and
+# that account silently loses the item.
+#   ok       present and, for a directory, a reparse point
+#   missing  nothing there at all -- the state doctor used to skip silently
+#   real     real content where a link belongs; never clobbered, so never auto-repaired
+#
+# Windows caveat: shared files use hard links, which carry no reparse point and
+# are indistinguishable from a copy without comparing file IDs. So for files this
+# detects absence only, not a link that was replaced by a plain copy.
+function _SharedStatus([string]$item) {
+    $link = Join-Path $SHARED_DIR $item
+    $it = Get-Item $link -Force -ErrorAction SilentlyContinue
+    if ($null -eq $it) { return "missing" }
+    if ($it.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { return "ok" }
+    if ($it.PSIsContainer) { return "real" }
+    return "ok"
+}
+
 function _EnsureShared {
     if (-not (Test-Path $DEFAULT_HOME)) { return }
     New-Item -ItemType Directory -Force -Path $SHARED_DIR | Out-Null
@@ -473,6 +492,12 @@ function Cmd-Switch([string]$spec) {
 
     $home = _ResolveHome $p $a
     if (-not (_RequireWrapper $home "switching to $p@$a")) { exit 1 }
+    # Unconditional, and deliberately not inside _PrepareHome: that returns early
+    # for the native home, so a switch to the native account rebuilt nothing.
+    # While a shared\<item> is missing, every isolated home's link to it is
+    # broken, so the repair has to be reachable from the account the user is on
+    # most.
+    _EnsureShared
     _PrepareHome $home
     _SetActive $p $a
     _SetLastAccount $p $a
@@ -970,6 +995,35 @@ function Cmd-Doctor {
         Write-Host "  warn  no active account - run: ccs switch <provider>"; $warnings++
     }
 
+    # shared\ is the hinge every isolated home hangs off, so a fault here is a
+    # fault in every isolated account at once. Until this check existed, an entry
+    # missing from shared\ was reported as intact.
+    Write-Host ""; Write-Host "shared configuration"
+    $repair = if (_ActiveSpec) { "ccs $ACTIVE_PROVIDER@$ACTIVE_ACCOUNT" } else { "ccs switch <provider>" }
+    $sharedItems = @(_SharedItems)
+    $sharedBad = 0
+    foreach ($item in $sharedItems) {
+        switch (_SharedStatus $item) {
+            "missing" {
+                Write-Host "  FAIL  shared\$item is missing - isolated accounts lose it; repair: $repair"
+                $problems++; $sharedBad++
+            }
+            "real" {
+                # Never auto-repaired: the real content and the canonical content
+                # can differ, and discarding either unasked loses the user's data.
+                Write-Host "  FAIL  shared\$item is real content, so it is no longer shared"
+                Write-Host "        compare it with $DEFAULT_HOME\$item, keep the version you want,"
+                Write-Host "        then move the other aside and run: $repair"
+                $problems++; $sharedBad++
+            }
+        }
+    }
+    if ($sharedItems.Count -eq 0) {
+        Write-Host "  warn  nothing to share - $DEFAULT_HOME looks empty"; $warnings++
+    } elseif ($sharedBad -eq 0) {
+        Write-Host "  ok    $($sharedItems.Count) shared item(s) linked to $DEFAULT_HOME"
+    }
+
     Write-Host ""; Write-Host "accounts"
     foreach ($p in @(_ListProviders)) {
         foreach ($a in @(_ListAccounts $p)) {
@@ -987,9 +1041,16 @@ function Cmd-Doctor {
             }
             foreach ($item in _SharedItems) {
                 $link = Join-Path $home $item
-                if (-not (Test-Path $link)) { continue }
                 $it = Get-Item $link -Force -ErrorAction SilentlyContinue
-                if ($null -ne $it -and -not ($it.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and $it.PSIsContainer) {
+                if ($null -eq $it) {
+                    # Absence was the invisible case: this loop used to `continue`
+                    # here, so doctor said nothing while the account was missing
+                    # the item entirely.
+                    Write-Host "  FAIL  $p@$a`: $item is not linked into this account; repair: ccs $p@$a"
+                    $problems++
+                    continue
+                }
+                if (-not ($it.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and $it.PSIsContainer) {
                     Write-Host "  warn  $p@$a`: $item is a real directory, not shared"; $warnings++
                 }
             }

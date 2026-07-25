@@ -77,6 +77,10 @@ cmd_doctor() {
   fi
 
   echo ""
+  echo "shared configuration"
+  _doctor_check_shared
+
+  echo ""
   echo "accounts"
   local provider account home email
   while IFS= read -r provider; do
@@ -124,16 +128,84 @@ _doctor_check_creds() {
   return 0
 }
 
+# The repair for anything under shared/ or inside a home is a switch: cmd_switch
+# calls _ensure_shared unconditionally and then _prepare_home, which relinks.
+_doctor_repair_cmd() {
+  local name
+  name="$(_active_name)"
+  [[ "$name" == "(none)" ]] && { echo "ccs switch <provider>"; return 0; }
+  echo "ccs $name"
+}
+
+# shared/ is the hinge every isolated home hangs off, so a fault here is a fault
+# in every isolated account at once. Until this check existed an entry missing
+# from shared/ was reported as "links intact", because _doctor_check_links only
+# tested for a dangling link or a real file -- never for absence.
+_doctor_check_shared() {
+  local item status repair problems=0 count=0
+  repair="$(_doctor_repair_cmd)"
+
+  while IFS= read -r item; do
+    [[ -z "$item" ]] && continue
+    count=$((count + 1))
+    status="$(_shared_status "$item")"
+    case "$status" in
+      ok) ;;
+      missing)
+        _d_fail "shared/$item is missing — isolated accounts lose it; repair: $repair"
+        problems=1 ;;
+      dangling)
+        _d_fail "shared/$item is a dangling link; repair: $repair"
+        problems=1 ;;
+      stale)
+        _d_fail "shared/$item does not point at $DEFAULT_HOME/$item; repair: $repair"
+        problems=1 ;;
+      real)
+        # Never auto-repaired: the real file and the canonical one can differ, and
+        # discarding either without being asked would lose the user's settings.
+        _d_fail "shared/$item is a real file, so it is no longer shared"
+        echo "        compare it with $DEFAULT_HOME/$item, keep the version you want,"
+        echo "        then move the other aside and run: $repair"
+        problems=1 ;;
+    esac
+  done < <(_shared_items)
+
+  # An item deleted from ~/.claude leaves a link behind that _shared_items no
+  # longer lists, so sweep for orphans separately or they stay invisible.
+  local link name
+  for link in "$SHARED_DIR"/*; do
+    [[ -L "$link" ]] || continue
+    [[ -e "$link" ]] && continue
+    name="$(basename "$link")"
+    _d_fail "shared/$name points at $DEFAULT_HOME/$name, which no longer exists"
+    echo "        restore that file, or remove the link: rm $link"
+    problems=1
+  done
+
+  if [[ $count -eq 0 ]]; then
+    _d_warn "nothing to share — $DEFAULT_HOME looks empty"
+  elif [[ $problems -eq 0 ]]; then
+    _d_pass "$count shared item(s) linked to $DEFAULT_HOME"
+  fi
+  # A reported problem must not abort the rest of the report under `set -e`.
+  return 0
+}
+
 _doctor_check_links() {
   local home="$1" label="$2" item broken=0
   [[ -d "$home" ]] || return 0
   while IFS= read -r item; do
     [[ -z "$item" ]] && continue
     if [[ -L "$home/$item" && ! -e "$home/$item" ]]; then
-      _d_fail "$label: $item is a dangling link"
+      _d_fail "$label: $item is a dangling link; repair: ccs $label"
       broken=1
     elif [[ -e "$home/$item" && ! -L "$home/$item" ]]; then
       _d_warn "$label: $item is a real file, not shared with the other accounts"
+      broken=1
+    elif [[ ! -e "$home/$item" && ! -L "$home/$item" ]]; then
+      # Absence was the invisible case: neither branch above matches, so doctor
+      # printed "links intact" while the account was missing the item entirely.
+      _d_fail "$label: $item is not linked into this account; repair: ccs $label"
       broken=1
     fi
   done < <(_shared_items)

@@ -28,6 +28,11 @@ cmd_switch() {
   home="$(_resolve_home "$provider" "$account")"
   _require_wrapper "$home" "switching to $provider@$account" || return 1
 
+  # Unconditional, and deliberately not inside _prepare_home: that returns early
+  # for the native home, so a switch to the native account rebuilt nothing. While
+  # a shared/<item> is missing every isolated home's link to it dangles, so the
+  # repair has to be reachable from the account the user is on most.
+  _ensure_shared
   _prepare_home "$home"
 
   ln -sfn "$path" "$ACTIVE_LINK"
