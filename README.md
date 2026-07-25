@@ -192,6 +192,7 @@ symlink, `active-home`, points at that account's config directory.
 │   └── anthropic-second/         ← this account's CLAUDE_CONFIG_DIR
 ├── shared/                       ← links into ~/.claude
 ├── backups/
+│   └── displaced/                ← content a repair moved aside, never deleted
 ├── active       -> profiles/anthropic/accounts/main.json
 └── active-home  -> ~/.claude
 ```
@@ -202,13 +203,23 @@ Switching a **provider** updates `active`. Switching an **account** also updates
 Every switch also rebuilds `shared/`, from **any** account including
 `anthropic@main`, so a link that went missing is repaired by the next `ccs <p>`.
 
-A link there can also be replaced by a **copy** — an external writer that
+A link there can also be **replaced by a real file** — an external writer that
 resolves one symlink level and renames its temp file onto `shared/<item>` leaves
-a real file where the link was, and sharing silently stops. When that copy is
-byte-identical to `~/.claude/<item>`, relinking loses nothing, so `ccs` repairs it
-on the next switch and says it did. When the two **differ**, `ccs` never touches
-either: `ccs doctor` fails with the `diff` command and you choose which version
-survives.
+a copy where the link was, and sharing silently stops. That matters most for
+`settings.json`: while it is degraded, isolated accounts run with none of your
+hooks, security guards included, and nothing in the session says so.
+
+So `ccs` restores sharing on the next switch, and never destroys what it found:
+
+| what it finds at `shared/<item>` | what `ccs` does |
+| :--- | :--- |
+| a file byte-identical to `~/.claude/<item>` | relinks it — nothing can be lost |
+| a file whose content **differs** | moves it to `backups/displaced/<item>.<timestamp>`, relinks, and prints where it went |
+| a **directory** | leaves it alone — merging two directories is not a choice `ccs` can make for you |
+
+Displaced files are never deleted. `ccs doctor` keeps listing them, because
+restoring the link also reverts whatever the displaced version held — if that
+version was the one you wanted, `diff` it back yourself.
 
 ### Why accounts need a whole directory
 
