@@ -1,19 +1,43 @@
 cmd_list() {
   _ensure_aliases
-  local active
-  active="$(_active_name)"
-  if [[ ! -d "$PROFILES_DIR" ]] || [[ -z "$(ls -A "$PROFILES_DIR" 2>/dev/null)" ]]; then
+  _active_spec || true
+
+  local providers
+  providers="$(_list_providers)"
+  if [[ -z "$providers" ]]; then
     echo "No profiles found. Run: ccs add <name>"
     return
   fi
-  for f in "$PROFILES_DIR"/*.json; do
-    [[ -f "$f" ]] || continue
-    local name
-    name="$(basename "$f" .json)"
-    if [[ "$name" == "$active" ]]; then
-      echo "* $name (active)"
-    else
-      echo "  $name"
+
+  local provider account count
+  while IFS= read -r provider; do
+    [[ -z "$provider" ]] && continue
+    count="$(_list_accounts "$provider" | wc -l | tr -d ' ')"
+
+    # A single-account provider prints as one line: there is nothing to choose
+    # between, so nesting it would be noise.
+    if [[ "$count" -le 1 ]]; then
+      account="$(_list_accounts "$provider" | head -1)"
+      if [[ "$provider" == "${ACTIVE_PROVIDER:-}" ]]; then
+        echo "* $provider (active)"
+      else
+        echo "  $provider"
+      fi
+      continue
     fi
-  done
+
+    if [[ "$provider" == "${ACTIVE_PROVIDER:-}" ]]; then
+      echo "* $provider"
+    else
+      echo "  $provider"
+    fi
+    while IFS= read -r account; do
+      [[ -z "$account" ]] && continue
+      if [[ "$provider" == "${ACTIVE_PROVIDER:-}" && "$account" == "${ACTIVE_ACCOUNT:-}" ]]; then
+        echo "    * $account (active)"
+      else
+        echo "      $account"
+      fi
+    done < <(_list_accounts "$provider")
+  done < <(echo "$providers")
 }
