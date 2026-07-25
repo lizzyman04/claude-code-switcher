@@ -1,0 +1,14 @@
+_boot.sh
+_core.sh
+cmd_list.sh
+cmd_switch.sh
+cmd_current.sh
+cmd_add.sh
+cmd_edit.sh
+cmd_key.sh
+cmd_remove.sh
+cmd_test.sh
+cmd_run.sh
+cmd_clean.sh
+_help.sh
+_main.sh
