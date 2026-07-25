@@ -248,6 +248,9 @@ test_shared_stub_is_displaced_and_relinked() {
     "$(grep -c 'shared/settings.json is a file that differs' <<< "$out")" "1"
   check "and says the repair displaces it" \
     "$(grep -c 'moves it to backups/displaced/' <<< "$out")" "1"
+  # A broken link reads as cosmetic. What it costs does not.
+  check "and says what the degradation costs" \
+    "$(grep -c 'run with none of your hooks or permissions' <<< "$out")" "1"
 
   out="$(ccs_in "$h" anthropic@main 2>&1)" || true
   [[ -L "$c/shared/settings.json" ]] \
@@ -269,6 +272,35 @@ test_shared_stub_is_displaced_and_relinked() {
     "$(cat "$h/.claude/settings.json")" "$canonical"
   check "and the isolated account reads it again" \
     "$(cat "$c/homes/anthropic-second/settings.json")" "$canonical"
+
+  # The switch that displaced it may have scrolled past, and a restored link also
+  # reverts whatever the displaced version held -- so doctor keeps pointing at it.
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "doctor keeps pointing at the displaced file afterwards" \
+    "$(grep -c 'moved aside by a repair, not deleted' <<< "$out")" "1"
+  check "and shared/ is otherwise healthy again" \
+    "$(grep -c 'shared item(s) linked to' <<< "$out")" "1"
+}
+
+# The hook consequence is not specific to the diverged case: a shared item that
+# is simply absent costs exactly the same, and used to be reported as a bare
+# broken link.
+test_doctor_names_the_cost_of_a_missing_item() {
+  echo "doctor says what a degraded shared item costs (#13)"
+  local h c out
+  h="$(new_home shared-cost)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+  rm -f "$c/shared/settings.json"
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "a missing settings.json names the hook consequence" \
+    "$(grep -c 'run with none of your hooks or permissions' <<< "$out")" "1"
+
+  rm -f "$c/shared/CLAUDE.md"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "and other items get their own consequence, not the hook one" \
+    "$(grep -c 'do not see your CLAUDE.md' <<< "$out")" "1"
 }
 
 # ── #11: active-home ─────────────────────────────────────────────────────────
@@ -498,6 +530,7 @@ test_doctor_flags_missing_shared
 test_doctor_real_dir_not_clobbered
 test_shared_copy_is_relinked
 test_shared_stub_is_displaced_and_relinked
+test_doctor_names_the_cost_of_a_missing_item
 
 echo ""
 echo "$_pass passed, $_fail failed"

@@ -260,6 +260,24 @@ _doctor_repair_cmd() {
   echo "ccs $name"
 }
 
+# What a degraded item actually costs. The old text described a broken link and
+# stopped there, which reads as cosmetic; it is not. settings.json carries hooks
+# and permissions, so while it is degraded the isolated account runs with none of
+# the user's hooks -- security guards among them -- and nothing in the session
+# says so.
+_shared_item_cost() {
+  case "$1" in
+    settings.json)
+      echo "isolated accounts run with none of your hooks or permissions" ;;
+    projects|history.jsonl|todos|session-env)
+      echo "isolated accounts lose your session history — claude --resume will not find it" ;;
+    agents|skills|commands|plugins)
+      echo "isolated accounts run without your $1" ;;
+    *)
+      echo "isolated accounts do not see your $1" ;;
+  esac
+}
+
 # shared/ is the hinge every isolated home hangs off, so a fault here is a fault
 # in every isolated account at once. Until this check existed an entry missing
 # from shared/ was reported as "links intact", because _doctor_check_links only
@@ -275,23 +293,31 @@ _doctor_check_shared() {
     case "$status" in
       ok) ;;
       missing)
-        _d_fail "shared/$item is missing — isolated accounts lose it; repair: $repair"
+        _d_fail "shared/$item is missing, so sharing of it has stopped"
+        echo "        $(_shared_item_cost "$item")"
+        echo "        repair: $repair"
         problems=1 ;;
       dangling)
-        _d_fail "shared/$item is a dangling link; repair: $repair"
+        _d_fail "shared/$item is a dangling link, so sharing of it has stopped"
+        echo "        $(_shared_item_cost "$item")"
+        echo "        repair: $repair"
         problems=1 ;;
       stale)
-        _d_fail "shared/$item does not point at $DEFAULT_HOME/$item; repair: $repair"
+        _d_fail "shared/$item does not point at $DEFAULT_HOME/$item"
+        echo "        $(_shared_item_cost "$item")"
+        echo "        repair: $repair"
         problems=1 ;;
       copy)
-        # An external writer replaced the link with a copy of the same bytes.
-        # _relink repairs this on the next switch because nothing can be lost.
-        _d_warn "shared/$item is a copy, not a link — repaired by: $repair"
+        # Bytes still match, so nothing is lost yet -- but the link is gone, so
+        # the next edit to the canonical file will not reach isolated accounts.
+        _d_warn "shared/$item is a copy, not a link — further edits to $DEFAULT_HOME/$item"
+        echo "        will not reach isolated accounts; repaired by: $repair"
         problems=1 ;;
       diverged)
         # Sharing has genuinely stopped. The repair displaces this content rather
         # than discarding it, so say where it will go before the switch does it.
         _d_fail "shared/$item is a file that differs from $DEFAULT_HOME/$item"
+        echo "        $(_shared_item_cost "$item")"
         echo "        compare: diff '$SHARED_DIR/$item' '$DEFAULT_HOME/$item'"
         echo "        $repair moves it to backups/displaced/ and restores the link"
         problems=1 ;;
@@ -299,6 +325,7 @@ _doctor_check_shared() {
         # A directory, or something that is not a regular file. Never auto-repaired:
         # merging two directories is not a choice ccs can make for the user.
         _d_fail "shared/$item is real content that differs from $DEFAULT_HOME/$item"
+        echo "        $(_shared_item_cost "$item")"
         echo "        compare: diff -r '$SHARED_DIR/$item' '$DEFAULT_HOME/$item'"
         echo "        keep the version you want, move the other aside, then run: $repair"
         problems=1 ;;
@@ -315,6 +342,17 @@ _doctor_check_shared() {
     _d_fail "shared/$name points at $DEFAULT_HOME/$name, which no longer exists"
     echo "        restore that file, or remove the link: rm $link"
     problems=1
+  done
+
+  # Content a repair moved out of the way. Nothing is broken -- the file is
+  # preserved and sharing is back -- but a repair that restores sharing also
+  # reverts whatever the displaced version held, and the line saying so scrolled
+  # past during a switch. Report it here so that is recoverable later, not lost.
+  local d
+  for d in "$BACKUPS_DIR"/displaced/*; do
+    [[ -e "$d" ]] || continue
+    echo "  note  moved aside by a repair, not deleted: $d"
+    echo "        compare with the live one, then delete it once reviewed"
   done
 
   if [[ $count -eq 0 ]]; then
