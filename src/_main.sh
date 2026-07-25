@@ -27,6 +27,9 @@ ccs_main() {
         cmd_clean "${@:2}"
       fi
       ;;
+    login)    cmd_login "${2:-}" ;;
+    logout)   cmd_logout "${2:-}" ;;
+    accounts) cmd_accounts "${2:-}" ;;
     doctor)  cmd_doctor ;;
     shell-install) _shell_install ;;
     help|--help|-h) cmd_help ;;

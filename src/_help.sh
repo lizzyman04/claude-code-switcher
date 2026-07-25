@@ -15,6 +15,9 @@ Commands:
   test              Test active profile connection
   clean [name]      Launch Claude with zero custom agents/skills
   clean --restore   Manually restore agents/skills (if session crashed)
+  login <p>[@<a>]   Sign in to an account (OAuth providers)
+  logout <p>@<a>    Clear one account's credentials
+  accounts [p]      List accounts with identity and daemon availability
   doctor            Check shell integration, links and credential modes
   shell-install     (Re)install the shell integration in .bashrc/.zshrc
 
