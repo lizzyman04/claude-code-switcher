@@ -1,5 +1,6 @@
 ccs_main() {
   mkdir -p "$PROFILES_DIR"
+  _migrate_flat_layout
 
   case "${1:-}" in
     list|"") cmd_list ;;

@@ -47,6 +47,18 @@ _json_str() {
 
 _meta_get() { _json_str "$(_profile_meta "$1")" "$2"; }
 
+# .env.<field> without hard-requiring jq, for the paths that must work before
+# `ccs list` has a chance to tell the user jq is missing.
+_env_field_soft() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 0
+  if command -v jq &>/dev/null; then
+    jq -r --arg k "$key" '.env[$k] // empty' "$file" 2>/dev/null
+  else
+    sed -n 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -1
+  fi
+}
+
 _meta_set() {
   local provider="$1" key="$2" value="$3" meta tmp
   meta="$(_profile_meta "$provider")"
@@ -67,7 +79,7 @@ _provider_auth() {
     local first base_url
     first="$(_list_accounts "$provider" | head -1)"
     if [[ -n "$first" ]]; then
-      base_url="$(_read_env_field "$(_account_path "$provider" "$first")" ANTHROPIC_BASE_URL)"
+      base_url="$(_env_field_soft "$(_account_path "$provider" "$first")" ANTHROPIC_BASE_URL)"
       [[ -n "$base_url" ]] && auth="token" || auth="oauth"
     fi
   fi
