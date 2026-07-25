@@ -27,6 +27,8 @@ ccs_main() {
         cmd_clean "${@:2}"
       fi
       ;;
+    doctor)  cmd_doctor ;;
+    shell-install) _shell_install ;;
     help|--help|-h) cmd_help ;;
     *)
       # Bare <provider> or <provider>@<account> is shorthand for switch. A known

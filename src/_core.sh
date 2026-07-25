@@ -140,6 +140,11 @@ _resolve_spec_or_die() {
 
 _realdir() { (cd -P "$1" 2>/dev/null && pwd -P); }
 
+# Octal permission bits. stat's flags differ between GNU and BSD/macOS.
+_file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo "?"
+}
+
 _is_native_home() {
   local a b
   a="$(_realdir "$1")"
@@ -187,17 +192,34 @@ _account_email() {
 
 # ── shared configuration ─────────────────────────────────────────────────────
 
-# Items linked from ~/.claude into every isolated home, so configuration is not
-# duplicated per account. Every top-level *.md is included, not just CLAUDE.md,
-# because CLAUDE.md may @-import siblings that must resolve inside the home too.
+# Items linked from ~/.claude into every isolated home.
+#
+# Two groups. Configuration (agents, skills, commands, plugins, settings.json,
+# CLAUDE.md) is shared so it is not duplicated per account. Work context
+# (projects, history.jsonl, todos, session-env) is shared because rotating
+# accounts happens mid-task: if transcripts were per-account, `claude --resume`
+# could not find the session you were just in, which is the moment you need it
+# most. Both directories are config-dir relative in Claude Code, so a symlink is
+# all it takes.
+#
+# Every top-level *.md is included, not just CLAUDE.md, because CLAUDE.md may
+# @-import siblings that must resolve inside the home too.
+#
+# Deliberately NOT shared, and per-account: .credentials.json and .claude.json
+# (they carry the account identity), sessions/ (a live-PID registry),
+# shell-snapshots/, file-history/, statsig/, and tasks/ + jobs/ (background-agent
+# state, which only works on the default config dir anyway).
 _shared_items() {
   local i
-  for i in agents skills commands plugins settings.json; do
+  for i in agents skills commands plugins settings.json \
+           projects history.jsonl todos session-env; do
     [[ -e "$DEFAULT_HOME/$i" ]] && echo "$i"
   done
   for i in "$DEFAULT_HOME"/*.md; do
     [[ -f "$i" ]] && basename "$i"
   done
+  # See _shell_rc_files: never leak the last test's exit status to the caller.
+  return 0
 }
 
 # Link, but never clobber: if something real sits where a link belongs, say so
@@ -222,6 +244,31 @@ _ensure_shared() {
     [[ -z "$item" ]] && continue
     _relink "$DEFAULT_HOME/$item" "$SHARED_DIR/$item" || true
   done < <(_shared_items)
+}
+
+# Make an isolated home usable: 0700 dir, shared config linked in, credentials
+# locked down. Idempotent, so it runs on every switch and self-heals.
+_prepare_home() {
+  local home="$1"
+  _is_native_home "$home" && return 0
+  mkdir -p "$home"
+  chmod 700 "$home"
+  _link_shared "$home"
+  # Claude Code writes this 0600 itself, but a restore from backup or a copy
+  # between machines can loosen it.
+  [[ -f "$home/.credentials.json" ]] && chmod 600 "$home/.credentials.json"
+  return 0
+}
+
+# A custom CLAUDE_CONFIG_DIR turns off Claude Code's background-agent daemon
+# (`if (process.env.CLAUDE_CONFIG_DIR || ...) return false`) and its service
+# installer refuses outright. That makes isolated accounts genuinely less
+# capable than the default one, so say so at the moment of switching.
+_warn_isolated() {
+  _is_native_home "$1" && return 0
+  echo "ccs: background agents and the daemon are unavailable on isolated" >&2
+  echo "ccs: accounts (Claude Code requires the default config dir)" >&2
+  return 0
 }
 
 _link_shared() {
@@ -275,20 +322,21 @@ _profile_path() {
   fi
 }
 
+# Detect the block marker, not the old alias: a user who has migrated has no
+# `alias claude=` line left, and checking for it would nag forever.
 _ensure_aliases() {
-  local shell_config=""
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    [[ -f "$rc" ]] && { shell_config="$rc"; break; }
-  done
-  if [[ -n "$shell_config" ]] && ! grep -q "alias claude=.*claude-profiles/active" "$shell_config" 2>/dev/null; then
-    echo "Aliases not configured. Add them? [Y/n]"
-    read -r response
-    if [[ "$response" =~ ^[Yy]?$ ]]; then
-      echo "" >> "$shell_config"
-      echo "# ccs aliases" >> "$shell_config"
-      echo "alias claude='claude --settings \$HOME/.config/claude-profiles/active'" >> "$shell_config"
-      echo "alias deepseek='ccs run deepseek'" >> "$shell_config"
-      echo "Done. Run: source $shell_config"
-    fi
+  local rc rcs missing=0
+  rcs="$(_shell_rc_files)"
+  [[ -z "$rcs" ]] && return 0
+  while IFS= read -r rc; do
+    [[ -z "$rc" ]] && continue
+    _shell_has_block "$rc" || missing=1
+  done <<< "$rcs"
+  [[ $missing -eq 0 ]] && return 0
+
+  echo "Shell integration not configured. Add it? [Y/n]"
+  read -r response
+  if [[ "$response" =~ ^[Yy]?$ ]]; then
+    _shell_install
   fi
 }

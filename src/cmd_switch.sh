@@ -24,7 +24,17 @@ cmd_switch() {
     fi
   fi
 
+  local home
+  home="$(_resolve_home "$provider" "$account")"
+  _require_wrapper "$home" "switching to $provider@$account" || return 1
+
+  _prepare_home "$home"
+
   ln -sfn "$path" "$ACTIVE_LINK"
+  # active-home is what the shell function reads to decide whether to export
+  # CLAUDE_CONFIG_DIR. It always points at the resolved dir; the function
+  # compares it against ~/.claude and exports only when they differ.
+  ln -sfn "$home" "$ACTIVE_HOME_LINK"
   _set_last_account "$provider" "$account"
 
   if [[ "$(_list_accounts "$provider" | wc -l | tr -d ' ')" -le 1 ]]; then
@@ -32,4 +42,6 @@ cmd_switch() {
   else
     echo "Switched to $provider@$account"
   fi
+
+  _warn_isolated "$home"
 }

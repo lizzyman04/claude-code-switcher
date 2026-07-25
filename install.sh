@@ -57,27 +57,12 @@ if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
   echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
 fi
 
-SHELL_CONFIG=""
-for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-  if [[ -f "$rc" ]]; then
-    SHELL_CONFIG="$rc"
-    break
-  fi
-done
-
-if [[ -n "$SHELL_CONFIG" ]]; then
-  if ! grep -q "alias claude=.*claude-profiles/active" "$SHELL_CONFIG" 2>/dev/null; then
-    cat >> "$SHELL_CONFIG" << 'ALIASES'
-
-# ccs — Claude Code Switcher aliases
-alias claude='claude --settings $HOME/.config/claude-profiles/active'
-alias deepseek='ccs run deepseek'
-ALIASES
-    echo ""
-    echo "Aliases added to $SHELL_CONFIG"
-    echo "→ Open a new terminal or run: source $SHELL_CONFIG"
-  fi
-fi
+# The shell integration is installed by ccs itself, so the block exists in
+# exactly one place (src/_shell.sh) rather than being duplicated here. It
+# replaces the old `alias claude=...` -- an alias cannot export
+# CLAUDE_CONFIG_DIR, which multi-account switching requires.
+echo ""
+"$INSTALL_DIR/$SCRIPT_NAME" shell-install
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
