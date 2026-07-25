@@ -138,6 +138,12 @@ If `type claude` does not say **`claude is a function`**, run:
 ccs shell-install     # then open a new terminal
 ```
 
+The function reads `active-home` to decide whether to export
+`CLAUDE_CONFIG_DIR`, and it cannot report a broken one — if that link is missing
+or points at a directory that is gone, it falls back to the default account
+without saying so. `ccs doctor` fails loudly on exactly that, and any `ccs <p>`
+rewrites the link.
+
 `ccs switch` and `ccs next` refuse outright rather than silently send you to the
 wrong account when the integration is missing. `ccs run <p>@<a>` always works
 regardless, because it sets the config dir in its own process.

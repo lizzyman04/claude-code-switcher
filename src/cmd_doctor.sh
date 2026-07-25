@@ -72,6 +72,7 @@ cmd_doctor() {
     _d_pass "active: $ACTIVE_PROVIDER@$ACTIVE_ACCOUNT"
     [[ -f "$ACTIVE_LINK" ]] && _d_pass "settings resolve: $(readlink "$ACTIVE_LINK")" \
                             || _d_fail "active symlink is dangling"
+    _doctor_check_active_home "$ACTIVE_PROVIDER" "$ACTIVE_ACCOUNT"
   else
     _d_warn "no active account — run: ccs switch <provider>"
   fi
@@ -124,6 +125,43 @@ _doctor_check_creds() {
     _d_pass "$label: credentials are mode 600"
   else
     _d_fail "$label: credentials are mode $mode, expected 600"
+  fi
+  return 0
+}
+
+# active-home is the single file wrong-account routing depends on, and it is the
+# one fault the wrapper cannot report: it guards with `[[ -d "$_h" ]]`, which
+# follows the link, so an absent or dangling active-home fails that test and falls
+# through to plain `command claude` against the default account. No error, no
+# output, wrong quota. Every fault here is therefore a FAIL, never a warning.
+_doctor_check_active_home() {
+  local provider="$1" account="$2" want got
+  want="$(_resolve_home "$provider" "$account")"
+
+  if [[ ! -L "$ACTIVE_HOME_LINK" ]]; then
+    if [[ -e "$ACTIVE_HOME_LINK" ]]; then
+      _d_fail "active-home is not a symlink; repair: ccs $provider@$account"
+    else
+      _d_fail "active-home is missing — claude would use $DEFAULT_HOME regardless of"
+      echo "        the active account; repair: ccs $provider@$account"
+    fi
+    return 0
+  fi
+
+  if [[ ! -d "$ACTIVE_HOME_LINK" ]]; then
+    _d_fail "active-home is dangling ($(readlink "$ACTIVE_HOME_LINK")) — the wrapper"
+    echo "        silently falls back to $DEFAULT_HOME; repair: ccs $provider@$account"
+    return 0
+  fi
+
+  # Compare resolved paths, not link text: the target may be reached through a
+  # symlinked HOME, and the wrapper itself compares with `cd -P; pwd -P`.
+  got="$(_realdir "$ACTIVE_HOME_LINK")"
+  if [[ "$got" == "$(_realdir "$want")" ]]; then
+    _d_pass "active-home resolves: $want"
+  else
+    _d_fail "active-home points at $got but $provider@$account resolves to $want"
+    echo "        claude would run the wrong account; repair: ccs $provider@$account"
   fi
   return 0
 }

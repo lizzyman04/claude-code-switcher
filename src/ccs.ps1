@@ -422,10 +422,24 @@ function _MigrateFlatLayout {
     }
 
     if ($migrated -eq 0) { return }
-    if (-not $oldActive) {
-        $first = @(_ListProviders) | Select-Object -First 1
-        if ($first) { _SetActive $first "main" }
+
+    # active-home.path is what the claude wrapper reads to decide whether to set
+    # CLAUDE_CONFIG_DIR, and migration used to leave it absent until the first
+    # switch. The wrapper falls back to the default config dir when it cannot read
+    # it, so the account would be silently wrong. Always write it here, through
+    # _SetActive so the spec file and the settings link stay consistent with it.
+    $target = $null
+    if ($oldActive -and $oldActive -match '^([^@]+)@(.+)$') {
+        if (Test-Path (_AccountPath $Matches[1] $Matches[2])) {
+            $target = @($Matches[1], $Matches[2])
+        }
     }
+    if (-not $target) {
+        $first = @(_ListProviders) | Select-Object -First 1
+        if ($first) { $target = @($first, (_DefaultAccount $first)) }
+    }
+    if ($target) { _SetActive $target[0] $target[1] }
+
     _EnsureShared
     Write-Host "ccs: migrated $migrated profile(s) to the multi-account layout" -ForegroundColor Yellow
     Write-Host "ccs: backup at $backup" -ForegroundColor Yellow
@@ -991,6 +1005,29 @@ function Cmd-Doctor {
         Write-Host "  ok    active: $ACTIVE_PROVIDER@$ACTIVE_ACCOUNT"
         if (Test-Path $ACTIVE_LINK) { Write-Host "  ok    settings resolve: $ACTIVE_LINK" }
         else { Write-Host "  FAIL  active settings file is missing"; $problems++ }
+
+        # active-home.path is the single file wrong-account routing depends on,
+        # and it is the one fault the wrapper cannot report: it falls back to the
+        # default config dir when the recorded path is missing or gone. Silent,
+        # and the wrong subscription. Every fault here is a FAIL.
+        $repairCmd = "ccs $ACTIVE_PROVIDER@$ACTIVE_ACCOUNT"
+        $want = _ResolveHome $ACTIVE_PROVIDER $ACTIVE_ACCOUNT
+        $recorded = _ActiveHome
+        if (-not $recorded) {
+            Write-Host "  FAIL  active-home.path is missing - claude would use $DEFAULT_HOME"
+            Write-Host "        regardless of the active account; repair: $repairCmd"
+            $problems++
+        } elseif (-not (Test-Path $recorded -PathType Container)) {
+            Write-Host "  FAIL  active-home.path points at $recorded, which does not exist;"
+            Write-Host "        the wrapper silently falls back to $DEFAULT_HOME; repair: $repairCmd"
+            $problems++
+        } elseif ((_NormPath $recorded) -ine (_NormPath $want)) {
+            Write-Host "  FAIL  active-home.path is $recorded but $ACTIVE_PROVIDER@$ACTIVE_ACCOUNT"
+            Write-Host "        resolves to $want; claude would run the wrong account; repair: $repairCmd"
+            $problems++
+        } else {
+            Write-Host "  ok    active-home resolves: $want"
+        }
     } else {
         Write-Host "  warn  no active account - run: ccs switch <provider>"; $warnings++
     }
