@@ -280,8 +280,23 @@ _relink() {
     # A dangling link fails -ef and gets recreated.
     [[ "$link" -ef "$target" ]] && return 0
     ln -sfn "$target" "$link"
+  elif [[ -f "$link" && -f "$target" ]] && cmp -s "$link" "$target"; then
+    # A real file whose bytes already match the canonical one. Relinking cannot
+    # lose anything, so repair it instead of demanding manual intervention.
+    #
+    # This is the observed recurring case: an external writer resolves one symlink
+    # level and renames its temp file onto shared/<item>, replacing the link with
+    # a copy of the same content. Refusing to touch it meant the identical-content
+    # case needed hand-repair every time, and the warning simply scrolled past on
+    # each switch.
+    rm -f "$link"
+    ln -sfn "$target" "$link"
+    echo "ccs: relinked $link (was a copy, byte-identical to $target)" >&2
   elif [[ -e "$link" ]]; then
-    echo "ccs: warning: $link is a real file, not a shared link — leaving it alone" >&2
+    # Content differs, or it is a directory: never discarded, because which
+    # version survives is the user's decision, not ccs's.
+    echo "ccs: warning: $link is real content, not a shared link — leaving it alone" >&2
+    echo "ccs:          compare: diff '$link' '$target'" >&2
     return 1
   else
     ln -sfn "$target" "$link"
@@ -295,12 +310,19 @@ _relink() {
 #   missing   nothing there at all -- the state doctor used to report as intact
 #   dangling  a link whose target is gone
 #   stale     a link pointing somewhere other than ~/.claude/<item>
-#   real      real content where a link belongs; never clobbered, so never auto-repaired
+#   real      content that differs from the canonical file; never clobbered, so a
+#             switch will not repair it -- the user chooses which version survives
+#
+# A real file whose bytes match the canonical one is reported as ok: _relink
+# repairs that case on the next switch, since relinking loses nothing.
 _shared_status() {
   local item="$1" link="$SHARED_DIR/$item" target="$DEFAULT_HOME/$item"
   if [[ -L "$link" ]]; then
     [[ -e "$link" ]] || { echo dangling; return 0; }
     [[ "$link" -ef "$target" ]] && echo ok || echo stale
+  elif [[ -f "$link" && -f "$target" ]] && cmp -s "$link" "$target"; then
+    # Degraded but losslessly repairable -- the next switch relinks it.
+    echo copy
   elif [[ -e "$link" ]]; then
     echo real
   else
