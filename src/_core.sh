@@ -140,6 +140,11 @@ _resolve_spec_or_die() {
 
 _realdir() { (cd -P "$1" 2>/dev/null && pwd -P); }
 
+# Octal permission bits. stat's flags differ between GNU and BSD/macOS.
+_file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo "?"
+}
+
 _is_native_home() {
   local a b
   a="$(_realdir "$1")"
@@ -198,6 +203,8 @@ _shared_items() {
   for i in "$DEFAULT_HOME"/*.md; do
     [[ -f "$i" ]] && basename "$i"
   done
+  # See _shell_rc_files: never leak the last test's exit status to the caller.
+  return 0
 }
 
 # Link, but never clobber: if something real sits where a link belongs, say so

@@ -24,6 +24,10 @@ cmd_switch() {
     fi
   fi
 
+  local home
+  home="$(_resolve_home "$provider" "$account")"
+  _require_wrapper "$home" "switching to $provider@$account" || return 1
+
   ln -sfn "$path" "$ACTIVE_LINK"
   _set_last_account "$provider" "$account"
 

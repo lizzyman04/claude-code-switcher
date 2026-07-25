@@ -13,9 +13,17 @@ cmd_current() {
   echo "Auth:     $auth"
 
   if [[ "$auth" == "oauth" ]]; then
+    # The email comes from the resolved home's config JSON, so this reports the
+    # identity actually logged in there rather than what ccs intends.
     email="$(_account_email "$home")"
     echo "Email:    ${email:-(not logged in)}"
     echo "Home:     $home"
+  fi
+
+  if _wrapper_loaded; then
+    echo "Wrapper:  active"
+  else
+    echo "Wrapper:  NOT LOADED — 'claude' ignores this selection (ccs shell-install)"
   fi
 
   _require_jq

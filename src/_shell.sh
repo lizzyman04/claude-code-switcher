@@ -42,6 +42,9 @@ _shell_rc_files() {
   for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
     [[ -f "$rc" ]] && echo "$rc"
   done
+  # Explicit: without it the function inherits the last test's exit status, and
+  # a missing .zshrc would abort the caller under `set -e`.
+  return 0
 }
 
 _shell_has_block() {
