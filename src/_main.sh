@@ -10,7 +10,7 @@ ccs_main() {
     edit)    cmd_edit "${2:-}" ;;
     key)     cmd_key "${2:-}" ;;
     remove)  cmd_remove "${2:-}" ;;
-    test)    cmd_test ;;
+    test)    cmd_test "${2:-}" ;;
     run)     cmd_run "${@:2}" ;;
     clean)
       if [[ "${2:-}" == "--restore" ]]; then
