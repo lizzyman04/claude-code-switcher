@@ -285,6 +285,28 @@ test_shared_stub_is_displaced_and_relinked() {
 # The hook consequence is not specific to the diverged case: a shared item that
 # is simply absent costs exactly the same, and used to be reported as a bare
 # broken link.
+# Doctor's job is confirming which identity is live, and it was the one command
+# that would not say so for the native account: it read the email on the isolated
+# branch only. `ccs current` and `ccs accounts` both showed it.
+test_doctor_names_the_native_identity() {
+  echo "doctor names the identity of a native oauth account"
+  local h out
+  h="$(new_home native-identity)"
+  # The native home is ~/.claude, so its config JSON is ~/.claude.json.
+  printf '{"oauthAccount":{"emailAddress":"user@example.com"}}\n' > "$h/.claude.json"
+  ccs_in "$h" anthropic@main > /dev/null 2>&1
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "the native account's email is reported" \
+    "$(grep -c 'anthropic@main: default config dir (user@example.com)' <<< "$out")" "1"
+  check "and the daemon note survives next to it" \
+    "$(grep -c 'anthropic@main: default config dir (user@example.com) (background agents available)' <<< "$out")" "1"
+  # A token provider resolves to the same config dir, whose oauthAccount belongs
+  # to the native *oauth* login -- naming it there would report a wrong identity.
+  check "a token provider is not given that email" \
+    "$(grep -c 'deepseek@main.*user@example.com' <<< "$out")" "0"
+}
+
 test_doctor_names_the_cost_of_a_missing_item() {
   echo "doctor says what a degraded shared item costs (#13)"
   local h c out
@@ -531,6 +553,7 @@ test_doctor_real_dir_not_clobbered
 test_shared_copy_is_relinked
 test_shared_stub_is_displaced_and_relinked
 test_doctor_names_the_cost_of_a_missing_item
+test_doctor_names_the_native_identity
 
 echo ""
 echo "$_pass passed, $_fail failed"

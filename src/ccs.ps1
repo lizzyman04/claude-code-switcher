@@ -1265,13 +1265,20 @@ function Cmd-Doctor {
     foreach ($p in @(_ListProviders)) {
         foreach ($a in @(_ListAccounts $p)) {
             $home = _ResolveHome $p $a
+            # Read the identity on both branches. Doctor exists to confirm which
+            # login is live, and it was the one command that would not say so for
+            # the native account -- `ccs current` and `ccs accounts` both do.
+            #
+            # oauth only: a token provider resolves to the default config dir as
+            # well, and that .claude.json holds the *native oauth* login, so
+            # printing it next to deepseek@main would name an unrelated identity.
+            $email = if ((_ProviderAuth $p) -eq "oauth") { _AccountEmail $home } else { $null }
+            $suffix = if ($email) { " ($email)" } else { "" }
             if (_IsNativeHome $home) {
-                Write-Host "  ok    $p@$a`: default config dir (background agents available)"
+                Write-Host "  ok    $p@$a`: default config dir$suffix (background agents available)"
                 continue
             }
             if (Test-Path $home) {
-                $email = _AccountEmail $home
-                $suffix = if ($email) { " ($email)" } else { "" }
                 Write-Host "  ok    $p@$a`: isolated$suffix - background agents unavailable"
             } else {
                 Write-Host "  warn  $p@$a`: home not created yet - run: ccs login $p@$a"; $warnings++

@@ -93,10 +93,20 @@ cmd_doctor() {
     while IFS= read -r account; do
       [[ -z "$account" ]] && continue
       home="$(_resolve_home "$provider" "$account")"
-      if _is_native_home "$home"; then
-        _d_pass "$provider@$account: default config dir (background agents available)"
-      else
+      # Read the identity on both branches. Doctor exists to confirm which login
+      # is live, and it was the one command that would not say so for the native
+      # account -- `ccs current` and `ccs accounts` both do.
+      #
+      # oauth only: a token provider resolves to the default config dir as well,
+      # and that .claude.json holds the *native oauth* login, so printing it next
+      # to deepseek@main would name an identity that has nothing to do with it.
+      email=""
+      if [[ "$(_provider_auth "$provider")" == "oauth" ]]; then
         email="$(_account_email "$home")"
+      fi
+      if _is_native_home "$home"; then
+        _d_pass "$provider@$account: default config dir${email:+ ($email)} (background agents available)"
+      else
         if [[ -d "$home" ]]; then
           _d_pass "$provider@$account: isolated${email:+ ($email)} — background agents unavailable"
         else
