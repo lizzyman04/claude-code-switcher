@@ -183,6 +183,20 @@ function _McpServers([string]$home) {
     return @($json.mcpServers.PSObject.Properties.Name | Sort-Object)
 }
 
+# Names of claude.ai connectors this account has EVER connected, sorted.
+#
+# The only local trace of account-managed connectors: Claude Code fetches the real
+# list from /api/oauth/organizations/:orgUUID/mcp/connectors/search, scoped to the
+# claude.ai org rather than the config dir, and never caches it on disk.
+#
+# Deliberately not treated as a count of live connectors -- it records everything
+# ever connected, so it over-reports. Usable only as a divergence signal.
+function _McpEverConnected([string]$home) {
+    $json = _ReadJson (_ConfigJson $home)
+    if ($null -eq $json -or $null -eq $json.claudeAiMcpEverConnected) { return @() }
+    return @($json.claudeAiMcpEverConnected | Sort-Object)
+}
+
 # ── shared configuration ─────────────────────────────────────────────────────
 
 # Configuration plus work context. projects/ and history.jsonl are shared so a
@@ -1085,33 +1099,57 @@ function Cmd-Doctor {
         Write-Host "  ok    $($sharedItems.Count) shared item(s) linked to $DEFAULT_HOME"
     }
 
-    # User-scope MCP servers live in .claude.json, which cannot be shared because
-    # it carries the account identity. They therefore do not follow a switch, and
-    # a new account starts with none. Nothing fails during a session -- the gap
-    # shows up as a tool that is simply missing, and ccs next exists for mid-task
-    # rotation, which is exactly when that bites. Reported, never synced: merging
-    # server definitions between config dirs can duplicate or clobber them.
+    # `claude mcp list` shows two kinds of entry and ccs can only see one:
+    # servers added with `claude mcp add` (.mcpServers in the per-account
+    # .claude.json) and account-managed claude.ai connectors, which are fetched
+    # per claude.ai org and never cached on disk.
+    #
+    # The first version of this check counted only the former and labelled it
+    # "user-scope server(s)". With three connectors on one account and none on the
+    # other it printed 0/0 and no warning, because .mcpServers was empty in both --
+    # reporting "aligned" for the very divergence it was written to catch. So the
+    # incompleteness is now stated unconditionally, never inferred from a count.
     Write-Host ""; Write-Host "MCP servers"
     $mcpReported = $false
     foreach ($p in @(_ListProviders)) {
         if ((_ProviderAuth $p) -ne "oauth") { continue }
         $firstNames = $null
+        $firstEver = $null
         $diverged = $false
+        $everDiverged = $false
         foreach ($a in @(_ListAccounts $p)) {
-            $names = @(_McpServers (_ResolveHome $p $a))
-            Write-Host "  note  $p@$a`: $($names.Count) user-scope server(s)"
+            $home = _ResolveHome $p $a
+            $names = @(_McpServers $home)
+            $ever  = @(_McpEverConnected $home)
+            Write-Host "  note  $p@$a`: $($names.Count) added with 'claude mcp add', $($ever.Count) claude.ai connector(s) ever connected"
             $mcpReported = $true
-            if ($null -eq $firstNames) { $firstNames = $names }
-            elseif (($names -join "`n") -ne ($firstNames -join "`n")) { $diverged = $true }
+            if ($null -eq $firstNames) { $firstNames = $names; $firstEver = $ever }
+            else {
+                if (($names -join "`n") -ne ($firstNames -join "`n")) { $diverged = $true }
+                if (($ever -join "`n") -ne ($firstEver -join "`n")) { $everDiverged = $true }
+            }
         }
         if ($diverged) {
-            Write-Host "  warn  $p`: accounts have different MCP servers - they live in"
-            Write-Host "        .claude.json, which is per-account, so they do not follow a switch."
+            Write-Host "  warn  $p`: accounts have different 'claude mcp add' servers - they"
+            Write-Host "        live in .claude.json, which is per-account, so they do not follow a switch."
             Write-Host "        Add one to the account that is missing it: claude mcp add <name> ..."
             $warnings++
         }
+        if ($everDiverged) {
+            Write-Host "  warn  $p`: accounts have connected different claude.ai connectors"
+            Write-Host "        Connectors follow the claude.ai account, not the config dir, so ccs"
+            Write-Host "        cannot copy them. Align them at https://claude.ai/customize/connectors"
+            $warnings++
+        }
     }
-    if (-not $mcpReported) { Write-Host "  ok    no OAuth accounts to compare" }
+    if ($mcpReported) {
+        # Unconditional, and deliberately not an "ok": the counts above cannot be
+        # complete, so any summary reading as "aligned" would be the original bug.
+        Write-Host "  note  ccs cannot see account-managed claude.ai connectors - these counts"
+        Write-Host "        are incomplete. Compare with: claude mcp list"
+    } else {
+        Write-Host "  ok    no OAuth accounts to compare"
+    }
 
     Write-Host ""; Write-Host "accounts"
     foreach ($p in @(_ListProviders)) {

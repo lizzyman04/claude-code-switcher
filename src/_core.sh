@@ -190,13 +190,19 @@ _account_email() {
   fi
 }
 
-# User-scope MCP server names for a home, sorted, one per line.
+# Names of MCP servers added with `claude mcp add`, sorted, one per line.
 #
-# These live in .claude.json, which cannot be shared because it carries
-# oauthAccount -- the account identity itself. So they do not follow an account
-# switch, and a freshly created account starts with none. ccs only reports the
-# divergence; it does not sync it, because merging server definitions between
-# config dirs can duplicate or clobber them.
+# This is only ONE of the two kinds of entry `claude mcp list` shows, and the
+# smaller one. It lives in .mcpServers in .claude.json, which cannot be shared
+# because that file carries oauthAccount -- the account identity itself -- so
+# these do not follow an account switch.
+#
+# The other kind is account-managed claude.ai connectors, which ccs cannot see at
+# all: Claude Code fetches them from
+# /api/oauth/organizations/:orgUUID/mcp/connectors/search, scoped to the claude.ai
+# org rather than the config dir, and never caches the list on disk. Reporting
+# this count alone as though it were complete is how doctor came to print 0/0 for
+# accounts that genuinely differed. See _mcp_ever_connected.
 #
 # Prints nothing when jq is absent: the caller distinguishes that case, since
 # "no jq" and "no servers" must not look alike.
@@ -206,6 +212,26 @@ _mcp_servers() {
   [[ -f "$cj" ]] || return 0
   command -v jq &>/dev/null || return 0
   jq -r '(.mcpServers // {}) | keys[]' "$cj" 2>/dev/null | LC_ALL=C sort
+  return 0
+}
+
+# Names of claude.ai connectors this account has EVER connected, sorted.
+#
+# The only local trace of account-managed connectors. Claude Code appends to it
+# when a connector is connected:
+#
+#   xlr(e){ ... hr((t)=>{let r=t.claudeAiMcpEverConnected??[]; ...
+#            return {...t, claudeAiMcpEverConnected:[...r,e]}}) }
+#
+# Deliberately NOT treated as a count of live connectors -- it records everything
+# ever connected, so it over-reports (observed: 4 recorded against 3 live). It is
+# usable only as a divergence signal, and the caller must label it as a hint.
+_mcp_ever_connected() {
+  local cj
+  cj="$(_config_json "$1")"
+  [[ -f "$cj" ]] || return 0
+  command -v jq &>/dev/null || return 0
+  jq -r '(.claudeAiMcpEverConnected // []) | .[]' "$cj" 2>/dev/null | LC_ALL=C sort
   return 0
 }
 

@@ -262,25 +262,38 @@ identity, so it cannot be shared — and it also stores:
 
 - **per-project trust flags**, so a second account asks you to trust each folder
   once;
-- **user-scope MCP servers**, which therefore do **not** follow an account
-  switch. An account you just created starts with none, and `claude mcp add` on
-  one account does not reach the other.
+- **MCP servers added with `claude mcp add`**, which therefore do **not** follow
+  an account switch. An account you just created starts with none.
 
-The MCP gap is silent during a session — a server is simply missing — so
-`ccs doctor` prints a per-account count and warns when accounts of the same
-provider disagree:
+`claude mcp list` also shows a second kind of entry, prefixed `claude.ai ` —
+**account-managed connectors**. Those are not in any file: Claude Code fetches
+them from your claude.ai org, so they follow the *account*, not the config
+directory. `ccs` cannot see or copy them; they are managed at
+[claude.ai/customize/connectors](https://claude.ai/customize/connectors) per
+account.
+
+The gap is silent during a session — a server is simply missing — so
+`ccs doctor` reports both, and says plainly which part it cannot see:
 
 ```
 MCP servers
-  note  anthropic@main: 3 user-scope server(s)
-  note  anthropic@second: 0 user-scope server(s)
-  warn  anthropic: accounts have different MCP servers — they live in
-        .claude.json, which is per-account, so they do not follow a switch.
+  note  anthropic@main: 0 added with 'claude mcp add', 4 claude.ai connector(s) ever connected
+  note  anthropic@second: 0 added with 'claude mcp add', 0 claude.ai connector(s) ever connected
+  warn  anthropic: accounts have connected different claude.ai connectors
+        Connectors follow the claude.ai account, not the config dir, so ccs
+        cannot copy them. Align them at https://claude.ai/customize/connectors
+  note  ccs cannot see account-managed claude.ai connectors — these counts
+        are incomplete. Compare with: claude mcp list
 ```
 
-`ccs` deliberately does not copy them across: merging server definitions between
-config dirs can duplicate or clobber them, so adding a server to the second
-account stays your call (`claude mcp add <name> …`).
+The connector figure comes from `claudeAiMcpEverConnected`, a record of what each
+account has *ever* connected, so treat it as a divergence hint rather than a live
+count. The incompleteness note always prints: a count of zero must never be read
+as "the accounts match".
+
+`ccs` deliberately copies nothing across. Connectors cannot be copied at all, and
+for `claude mcp add` servers, merging definitions between config dirs can
+duplicate or clobber them — so that stays your call.
 
 ### Upgrading from a single-account install
 

@@ -314,17 +314,17 @@ EOF
 
   out="$(ccs_in "$h" doctor 2>&1)" || true
   check "counts the native account's servers" \
-    "$(grep -c 'anthropic@main: 3 user-scope server(s)' <<< "$out")" "1"
+    "$(grep -c "anthropic@main: 3 added with 'claude mcp add'" <<< "$out")" "1"
   check "counts the isolated account's servers" \
-    "$(grep -c 'anthropic@second: 0 user-scope server(s)' <<< "$out")" "1"
+    "$(grep -c "anthropic@second: 0 added with 'claude mcp add'" <<< "$out")" "1"
   check "warns that the accounts diverge" \
-    "$(grep -c 'anthropic: accounts have different MCP servers' <<< "$out")" "1"
+    "$(grep -c "accounts have different 'claude mcp add' servers" <<< "$out")" "1"
 
   # Equal sets must not warn, or the warning becomes noise to ignore.
   cp "$h/.claude.json" "$c/homes/anthropic-second/.claude.json"
   out="$(ccs_in "$h" doctor 2>&1)" || true
   check "matching servers produce no warning" \
-    "$(grep -c 'accounts have different MCP servers' <<< "$out")" "0"
+    "$(grep -c "accounts have different 'claude mcp add' servers" <<< "$out")" "0"
 
   # Same count, different names: a count-only check would miss this.
   cat > "$c/homes/anthropic-second/.claude.json" << 'EOF'
@@ -338,15 +338,67 @@ EOF
 EOF
   out="$(ccs_in "$h" doctor 2>&1)" || true
   check "different names at the same count still warn" \
-    "$(grep -c 'anthropic: accounts have different MCP servers' <<< "$out")" "1"
+    "$(grep -c "accounts have different 'claude mcp add' servers" <<< "$out")" "1"
 
   # Reporting must never rewrite the file it inspected.
   check "the inspected .claude.json is untouched" \
     "$(jq -r '.mcpServers | keys | join(",")' "$h/.claude.json")" "canva,context7,figma"
 }
 
+# The false-assurance case that shipped in #18: on a real machine one account had
+# three claude.ai connectors and the other none, but .mcpServers was empty in both
+# -- so doctor printed 0/0 with no warning and read as "aligned". Those connectors
+# are fetched per claude.ai org and never stored in .claude.json; the only local
+# trace is claudeAiMcpEverConnected.
+test_doctor_mcp_connector_divergence() {
+  echo "doctor never reports aligned when connectors diverge (#12)"
+  if ! command -v jq > /dev/null 2>&1; then
+    echo "  SKIP  jq not installed"
+    return 0
+  fi
+  local h c out
+  h="$(new_home mcp-connectors)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+
+  # Exactly the real shape: no mcpServers key anywhere, connectors on main only.
+  cat > "$h/.claude.json" << 'EOF'
+{
+  "claudeAiMcpEverConnected": ["canva", "figma", "google-drive"]
+}
+EOF
+  printf '{}\n' > "$c/homes/anthropic-second/.claude.json"
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "the connector divergence is warned about" \
+    "$(grep -c 'connected different claude.ai connectors' <<< "$out")" "1"
+  check "it points at claude.ai, not at a ccs command" \
+    "$(grep -c 'claude.ai/customize/connectors' <<< "$out")" "1"
+  check "the incompleteness of the counts is always stated" \
+    "$(grep -c 'cannot see account-managed claude.ai connectors' <<< "$out")" "1"
+  # The label must not claim to cover everything `claude mcp list` shows.
+  check "the old misleading 'user-scope server(s)' label is gone" \
+    "$(grep -c 'user-scope server' <<< "$out")" "0"
+
+  # Equal connectors, still incomplete: the note stays, the warning goes.
+  cp "$h/.claude.json" "$c/homes/anthropic-second/.claude.json"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "matching connectors produce no divergence warning" \
+    "$(grep -c 'connected different claude.ai connectors' <<< "$out")" "0"
+  check "but the incompleteness note is still printed" \
+    "$(grep -c 'cannot see account-managed claude.ai connectors' <<< "$out")" "1"
+
+  # And with nothing at all recorded, doctor must still not claim alignment.
+  printf '{}\n' > "$h/.claude.json"
+  printf '{}\n' > "$c/homes/anthropic-second/.claude.json"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "an all-zero state never reads as aligned" \
+    "$(grep -c 'cannot see account-managed claude.ai connectors' <<< "$out")" "1"
+}
+
 build_bin
 test_doctor_reports_mcp_divergence
+test_doctor_mcp_connector_divergence
 test_noop_switch_message
 test_migration_creates_both_links
 test_doctor_flags_dangling_active_home
