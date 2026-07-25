@@ -133,16 +133,29 @@ _doctor_check_creds() {
   return 0
 }
 
-# User-scope MCP servers live in .claude.json, which cannot be shared because it
-# carries the account identity. So they do not follow an account switch, and a new
-# account starts with none. Nothing fails and nothing warns during a session --
-# the gap shows up as a tool that is simply missing, and `ccs next` exists for
-# mid-task rotation, which is exactly when that bites.
+# `claude mcp list` shows two kinds of entry, and ccs can only see one of them.
 #
-# This reports only. Syncing is a separate decision: merging server definitions
-# between config dirs can duplicate or clobber them, so it is not done silently.
+#   1. servers added with `claude mcp add` -> .mcpServers in .claude.json, which
+#      is per-account because that file carries oauthAccount, so they do not
+#      follow a switch;
+#   2. account-managed claude.ai connectors -> fetched from
+#      /api/oauth/organizations/:orgUUID/mcp/connectors/search, scoped to the
+#      claude.ai org rather than the config dir, and never cached on disk.
+#
+# The first version of this check counted only (1) and labelled it "user-scope
+# server(s)". On a real machine with three connectors on one account and none on
+# the other it printed 0/0 with no warning, because .mcpServers was empty in both
+# -- reporting "aligned" for the exact divergence it was written to catch. Silence
+# read as zero, which is worse than having no check at all.
+#
+# So the incompleteness is now stated unconditionally, never inferred from a
+# count, and claudeAiMcpEverConnected is used as a divergence signal. That key is
+# a record of everything ever connected rather than what is live -- observed as 4
+# recorded against 3 live -- so it is reported as a hint and never as a count of
+# active connectors.
 _doctor_check_mcp() {
-  local provider account home names count first_names="" first_account="" diverged=0 reported=0
+  local provider account home names ever count ever_count
+  local first_names="" first_ever="" first_account="" diverged=0 ever_diverged=0 reported=0
 
   if ! command -v jq &>/dev/null; then
     _d_warn "jq not installed — cannot read per-account MCP servers"
@@ -154,31 +167,50 @@ _doctor_check_mcp() {
     [[ "$(_provider_auth "$provider")" == "oauth" ]] || continue
 
     first_names=""
+    first_ever=""
     first_account=""
     diverged=0
+    ever_diverged=0
     while IFS= read -r account; do
       [[ -z "$account" ]] && continue
       home="$(_resolve_home "$provider" "$account")"
       names="$(_mcp_servers "$home")"
+      ever="$(_mcp_ever_connected "$home")"
       count="$(printf '%s' "$names" | grep -c . || true)"
-      echo "  note  $provider@$account: $count user-scope server(s)"
+      ever_count="$(printf '%s' "$ever" | grep -c . || true)"
+      echo "  note  $provider@$account: $count added with 'claude mcp add', $ever_count claude.ai connector(s) ever connected"
       reported=1
       if [[ -z "$first_account" ]]; then
         first_account="$account"
         first_names="$names"
-      elif [[ "$names" != "$first_names" ]]; then
-        diverged=1
+        first_ever="$ever"
+      else
+        [[ "$names" != "$first_names" ]] && diverged=1
+        [[ "$ever" != "$first_ever" ]] && ever_diverged=1
       fi
     done < <(_list_accounts "$provider")
 
     if [[ $diverged -eq 1 ]]; then
-      _d_warn "$provider: accounts have different MCP servers — they live in"
-      echo "        .claude.json, which is per-account, so they do not follow a switch."
+      _d_warn "$provider: accounts have different 'claude mcp add' servers — they live"
+      echo "        in .claude.json, which is per-account, so they do not follow a switch."
       echo "        Add one to the account that is missing it: claude mcp add <name> …"
+    fi
+
+    if [[ $ever_diverged -eq 1 ]]; then
+      _d_warn "$provider: accounts have connected different claude.ai connectors"
+      echo "        Connectors follow the claude.ai account, not the config dir, so ccs"
+      echo "        cannot copy them. Align them at https://claude.ai/customize/connectors"
     fi
   done < <(_list_providers)
 
-  [[ $reported -eq 1 ]] || _d_pass "no OAuth accounts to compare"
+  if [[ $reported -eq 1 ]]; then
+    # Unconditional, and deliberately not a pass: the counts above cannot be
+    # complete, so any summary that reads as "aligned" would be the original bug.
+    echo "  note  ccs cannot see account-managed claude.ai connectors — these counts"
+    echo "        are incomplete. Compare with: claude mcp list"
+  else
+    _d_pass "no OAuth accounts to compare"
+  fi
   return 0
 }
 
