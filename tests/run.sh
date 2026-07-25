@@ -180,7 +180,69 @@ test_doctor_real_file_not_clobbered() {
     "$(cat "$c/shared/settings.json")" '{"hooks":{"custom":1}}'
 }
 
+# ── #11: active-home ─────────────────────────────────────────────────────────
+#
+# Migration created `active` but not `active-home`, and doctor never looked at
+# active-home at all -- so the file wrong-account routing depends on could be
+# absent, dangling or mismatched and every check still passed.
+test_migration_creates_both_links() {
+  echo "migration creates active and active-home (#11)"
+  local h c
+  h="$(new_flat_home migrate-links)"
+  c="$h/.config/claude-profiles"
+
+  ccs_in "$h" list > /dev/null 2>&1
+  [[ -L "$c/active" ]]      && ok "active exists"      || bad "active exists"
+  [[ -L "$c/active-home" ]] && ok "active-home exists" || bad "active-home exists"
+  [[ -d "$c/active-home" ]] && ok "active-home resolves to a directory" \
+                            || bad "active-home resolves to a directory"
+  # anthropic had no base URL, so it migrated as oauth with native_account=main:
+  # its home is the default dir, not a sibling under homes/.
+  check "active-home points at the native home" \
+    "$(cd -P "$c/active-home" 2>/dev/null && pwd -P)" "$(cd -P "$h/.claude" && pwd -P)"
+
+  # Idempotence: a second run must not disturb either link.
+  ccs_in "$h" list > /dev/null 2>&1
+  [[ -L "$c/active-home" && -d "$c/active-home" ]] \
+    && ok "active-home survives a second run" || bad "active-home survives a second run"
+}
+
+test_doctor_flags_dangling_active_home() {
+  echo "doctor FAILs on a dangling active-home (#11)"
+  local h c out
+  h="$(new_home dangling-home)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+
+  # Exactly the fail-open case: the wrapper guards with `[[ -d "$_h" ]]`, which
+  # follows the link, so this state routes to the default account in silence.
+  ln -sfn "$c/homes/anthropic-gone" "$c/active-home"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  grep -q "FAIL  active-home is dangling" <<< "$out" \
+    && ok "a dangling active-home is a FAIL" || bad "a dangling active-home is a FAIL"
+  grep -q "^result: problems found" <<< "$out" \
+    && ok "doctor reports problems" || bad "doctor reports problems"
+
+  rm -f "$c/active-home"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  grep -q "FAIL  active-home is missing" <<< "$out" \
+    && ok "a missing active-home is a FAIL" || bad "a missing active-home is a FAIL"
+
+  # Mismatch: points at a real directory, but not the active account's.
+  ln -sfn "$h/.claude" "$c/active-home"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  grep -q "FAIL  active-home points at" <<< "$out" \
+    && ok "a mismatched active-home is a FAIL" || bad "a mismatched active-home is a FAIL"
+
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  grep -q "ok    active-home resolves" <<< "$out" \
+    && ok "a switch repairs active-home" || bad "a switch repairs active-home"
+}
+
 build_bin
+test_migration_creates_both_links
+test_doctor_flags_dangling_active_home
 test_shared_repair_from_native
 test_doctor_flags_missing_shared
 test_doctor_real_file_not_clobbered

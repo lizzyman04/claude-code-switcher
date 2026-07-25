@@ -81,6 +81,16 @@ EOF
     ln -sfn "$PROFILES_DIR/$old_active/accounts/main.json" "$ACTIVE_LINK"
   fi
 
+  # active-home is what the shell function reads to decide whether to export
+  # CLAUDE_CONFIG_DIR, and migration used to leave it absent until the first
+  # switch. That is not merely untidy: the wrapper guards with `[[ -d "$_h" ]]`,
+  # which follows the link, so an absent or dangling active-home falls straight
+  # through to `command claude` against the default account -- silently, which is
+  # the exact failure the wrapper exists to prevent.
+  if _active_spec; then
+    ln -sfn "$(_resolve_home "$ACTIVE_PROVIDER" "$ACTIVE_ACCOUNT")" "$ACTIVE_HOME_LINK"
+  fi
+
   _ensure_shared
 
   echo "ccs: migrated $migrated profile(s) to the multi-account layout" >&2
