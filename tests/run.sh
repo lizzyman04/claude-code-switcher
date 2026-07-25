@@ -240,7 +240,53 @@ test_doctor_flags_dangling_active_home() {
     && ok "a switch repairs active-home" || bad "a switch repairs active-home"
 }
 
+# ── #14: a no-op switch must not claim it switched ───────────────────────────
+#
+# A bare provider resolves to last_account, so `ccs anthropic` can mean a real
+# switch one minute and nothing at all the next. It printed "Switched to ..."
+# either way.
+test_noop_switch_message() {
+  echo "a no-op switch says so (#14)"
+  local h out c
+  h="$(new_home noop)"
+  c="$h/.config/claude-profiles"
+
+  out="$(ccs_in "$h" anthropic@second 2>/dev/null)"
+  check "an actual switch still says Switched to" \
+    "$(grep -c '^Switched to anthropic@second$' <<< "$out")" "1"
+
+  # The bare provider resolves to last_account, which is now second.
+  out="$(ccs_in "$h" anthropic 2>/dev/null)"
+  check "a bare provider resolving to the current account says Already on" \
+    "$(grep -c '^Already on anthropic@second$' <<< "$out")" "1"
+  check "and does not claim a switch" \
+    "$(grep -c '^Switched to' <<< "$out")" "0"
+
+  out="$(ccs_in "$h" anthropic@main 2>/dev/null)"
+  check "switching accounts within a provider still says Switched to" \
+    "$(grep -c '^Switched to anthropic@main$' <<< "$out")" "1"
+
+  # A single-account provider keeps the bare label, in both wordings.
+  out="$(ccs_in "$h" deepseek 2>/dev/null)"
+  check "a single-account provider says Switched to <provider>" \
+    "$(grep -c '^Switched to deepseek$' <<< "$out")" "1"
+  out="$(ccs_in "$h" deepseek 2>/dev/null)"
+  check "and Already on <provider> when repeated" \
+    "$(grep -c '^Already on deepseek$' <<< "$out")" "1"
+
+  # The idempotent repair work must still run on a no-op, since that is what
+  # heals a degraded home.
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+  rm -f "$c/shared/settings.json" "$c/homes/anthropic-second/settings.json"
+  out="$(ccs_in "$h" anthropic 2>/dev/null)"
+  check "a no-op still reports itself as a no-op" \
+    "$(grep -c '^Already on anthropic@second$' <<< "$out")" "1"
+  [[ -L "$c/shared/settings.json" && -e "$c/homes/anthropic-second/settings.json" ]] \
+    && ok "a no-op still repairs shared links" || bad "a no-op still repairs shared links"
+}
+
 build_bin
+test_noop_switch_message
 test_migration_creates_both_links
 test_doctor_flags_dangling_active_home
 test_shared_repair_from_native

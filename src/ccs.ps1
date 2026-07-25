@@ -506,6 +506,14 @@ function Cmd-Switch([string]$spec) {
 
     $home = _ResolveHome $p $a
     if (-not (_RequireWrapper $home "switching to $p@$a")) { exit 1 }
+
+    # Captured before the links are rewritten: afterwards a real switch and a
+    # no-op are indistinguishable. A bare provider resolves to last_account,
+    # mutable state the user cannot see in the command they typed, so claiming a
+    # switch that did not happen makes the output untrustworthy exactly when it
+    # is being read to confirm which account is live.
+    $wasActive = ((_ActiveSpec) -and $ACTIVE_PROVIDER -eq $p -and $ACTIVE_ACCOUNT -eq $a)
+
     # Unconditional, and deliberately not inside _PrepareHome: that returns early
     # for the native home, so a switch to the native account rebuilt nothing.
     # While a shared\<item> is missing, every isolated home's link to it is
@@ -516,8 +524,11 @@ function Cmd-Switch([string]$spec) {
     _SetActive $p $a
     _SetLastAccount $p $a
 
-    if (@(_ListAccounts $p).Count -le 1) { Write-Host "Switched to $p" }
-    else { Write-Host "Switched to $p@$a" }
+    # The work above still runs in the no-op case: _EnsureShared and _PrepareHome
+    # are idempotent by design and are what repair a degraded home. Only the
+    # message changes.
+    $label = if (@(_ListAccounts $p).Count -le 1) { $p } else { "$p@$a" }
+    if ($wasActive) { Write-Host "Already on $label" } else { Write-Host "Switched to $label" }
     _WarnIsolated $home
 }
 
