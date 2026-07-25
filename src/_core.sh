@@ -192,12 +192,27 @@ _account_email() {
 
 # ── shared configuration ─────────────────────────────────────────────────────
 
-# Items linked from ~/.claude into every isolated home, so configuration is not
-# duplicated per account. Every top-level *.md is included, not just CLAUDE.md,
-# because CLAUDE.md may @-import siblings that must resolve inside the home too.
+# Items linked from ~/.claude into every isolated home.
+#
+# Two groups. Configuration (agents, skills, commands, plugins, settings.json,
+# CLAUDE.md) is shared so it is not duplicated per account. Work context
+# (projects, history.jsonl, todos, session-env) is shared because rotating
+# accounts happens mid-task: if transcripts were per-account, `claude --resume`
+# could not find the session you were just in, which is the moment you need it
+# most. Both directories are config-dir relative in Claude Code, so a symlink is
+# all it takes.
+#
+# Every top-level *.md is included, not just CLAUDE.md, because CLAUDE.md may
+# @-import siblings that must resolve inside the home too.
+#
+# Deliberately NOT shared, and per-account: .credentials.json and .claude.json
+# (they carry the account identity), sessions/ (a live-PID registry),
+# shell-snapshots/, file-history/, statsig/, and tasks/ + jobs/ (background-agent
+# state, which only works on the default config dir anyway).
 _shared_items() {
   local i
-  for i in agents skills commands plugins settings.json; do
+  for i in agents skills commands plugins settings.json \
+           projects history.jsonl todos session-env; do
     [[ -e "$DEFAULT_HOME/$i" ]] && echo "$i"
   done
   for i in "$DEFAULT_HOME"/*.md; do
