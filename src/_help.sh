@@ -15,6 +15,7 @@ Commands:
   test              Test active profile connection
   clean [name]      Launch Claude with zero custom agents/skills
   clean --restore   Manually restore agents/skills (if session crashed)
+  next              Rotate to the next account of the CURRENT provider
   login <p>[@<a>]   Sign in to an account (OAuth providers)
   logout <p>@<a>    Clear one account's credentials
   accounts [p]      List accounts with identity and daemon availability

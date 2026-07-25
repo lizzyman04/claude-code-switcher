@@ -27,6 +27,7 @@ ccs_main() {
         cmd_clean "${@:2}"
       fi
       ;;
+    next)     cmd_next ;;
     login)    cmd_login "${2:-}" ;;
     logout)   cmd_logout "${2:-}" ;;
     accounts) cmd_accounts "${2:-}" ;;
