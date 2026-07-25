@@ -10,23 +10,19 @@ ccs_main() {
     edit)    cmd_edit "${2:-}" ;;
     key)     cmd_key "${2:-}" ;;
     remove)  cmd_remove "${2:-}" ;;
-    test)    cmd_test ;;
+    test)    cmd_test "${2:-}" ;;
     run)     cmd_run "${@:2}" ;;
     clean)
       if [[ "${2:-}" == "--restore" ]]; then
-        if [[ -d "$HOME/.claude/agents.ccs-disabled" ]]; then
-          mv "$HOME/.claude/agents.ccs-disabled" "$HOME/.claude/agents"
-          echo "ccs: restored agents"
-        fi
-        if [[ -d "$HOME/.claude/skills.ccs-disabled" ]]; then
-          mv "$HOME/.claude/skills.ccs-disabled" "$HOME/.claude/skills"
-          echo "ccs: restored skills"
-        fi
-        echo "ccs: cleanup complete"
+        cmd_clean_restore
       else
         cmd_clean "${@:2}"
       fi
       ;;
+    next)     cmd_next ;;
+    login)    cmd_login "${2:-}" ;;
+    logout)   cmd_logout "${2:-}" ;;
+    accounts) cmd_accounts "${2:-}" ;;
     doctor)  cmd_doctor ;;
     shell-install) _shell_install ;;
     help|--help|-h) cmd_help ;;

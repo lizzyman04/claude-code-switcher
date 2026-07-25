@@ -12,6 +12,8 @@ cmd_remove.sh
 cmd_test.sh
 cmd_run.sh
 cmd_clean.sh
+cmd_login.sh
+cmd_next.sh
 cmd_doctor.sh
 _help.sh
 _main.sh
