@@ -1,4 +1,5 @@
 _boot.sh
+_shell.sh
 _core.sh
 _migrate.sh
 cmd_list.sh

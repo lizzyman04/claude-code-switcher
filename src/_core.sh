@@ -275,20 +275,21 @@ _profile_path() {
   fi
 }
 
+# Detect the block marker, not the old alias: a user who has migrated has no
+# `alias claude=` line left, and checking for it would nag forever.
 _ensure_aliases() {
-  local shell_config=""
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    [[ -f "$rc" ]] && { shell_config="$rc"; break; }
-  done
-  if [[ -n "$shell_config" ]] && ! grep -q "alias claude=.*claude-profiles/active" "$shell_config" 2>/dev/null; then
-    echo "Aliases not configured. Add them? [Y/n]"
-    read -r response
-    if [[ "$response" =~ ^[Yy]?$ ]]; then
-      echo "" >> "$shell_config"
-      echo "# ccs aliases" >> "$shell_config"
-      echo "alias claude='claude --settings \$HOME/.config/claude-profiles/active'" >> "$shell_config"
-      echo "alias deepseek='ccs run deepseek'" >> "$shell_config"
-      echo "Done. Run: source $shell_config"
-    fi
+  local rc rcs missing=0
+  rcs="$(_shell_rc_files)"
+  [[ -z "$rcs" ]] && return 0
+  while IFS= read -r rc; do
+    [[ -z "$rc" ]] && continue
+    _shell_has_block "$rc" || missing=1
+  done <<< "$rcs"
+  [[ $missing -eq 0 ]] && return 0
+
+  echo "Shell integration not configured. Add it? [Y/n]"
+  read -r response
+  if [[ "$response" =~ ^[Yy]?$ ]]; then
+    _shell_install
   fi
 }
