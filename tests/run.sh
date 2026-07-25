@@ -285,7 +285,68 @@ test_noop_switch_message() {
     && ok "a no-op still repairs shared links" || bad "a no-op still repairs shared links"
 }
 
+# ── #12: MCP servers do not follow a switch ──────────────────────────────────
+#
+# Reporting only. .claude.json cannot be shared -- it carries oauthAccount -- so
+# the servers genuinely diverge; the bug was that nothing said so.
+test_doctor_reports_mcp_divergence() {
+  echo "doctor reports per-account MCP servers (#12)"
+  if ! command -v jq > /dev/null 2>&1; then
+    echo "  SKIP  jq not installed"
+    return 0
+  fi
+  local h c out
+  h="$(new_home mcp)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+
+  # The native account's .claude.json sits beside HOME, not inside ~/.claude.
+  cat > "$h/.claude.json" << 'EOF'
+{
+  "mcpServers": {
+    "context7": {"command": "npx"},
+    "figma": {"command": "npx"},
+    "canva": {"command": "npx"}
+  }
+}
+EOF
+  printf '{"mcpServers": {}}\n' > "$c/homes/anthropic-second/.claude.json"
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "counts the native account's servers" \
+    "$(grep -c 'anthropic@main: 3 user-scope server(s)' <<< "$out")" "1"
+  check "counts the isolated account's servers" \
+    "$(grep -c 'anthropic@second: 0 user-scope server(s)' <<< "$out")" "1"
+  check "warns that the accounts diverge" \
+    "$(grep -c 'anthropic: accounts have different MCP servers' <<< "$out")" "1"
+
+  # Equal sets must not warn, or the warning becomes noise to ignore.
+  cp "$h/.claude.json" "$c/homes/anthropic-second/.claude.json"
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "matching servers produce no warning" \
+    "$(grep -c 'accounts have different MCP servers' <<< "$out")" "0"
+
+  # Same count, different names: a count-only check would miss this.
+  cat > "$c/homes/anthropic-second/.claude.json" << 'EOF'
+{
+  "mcpServers": {
+    "context7": {"command": "npx"},
+    "figma": {"command": "npx"},
+    "other": {"command": "npx"}
+  }
+}
+EOF
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "different names at the same count still warn" \
+    "$(grep -c 'anthropic: accounts have different MCP servers' <<< "$out")" "1"
+
+  # Reporting must never rewrite the file it inspected.
+  check "the inspected .claude.json is untouched" \
+    "$(jq -r '.mcpServers | keys | join(",")' "$h/.claude.json")" "canva,context7,figma"
+}
+
 build_bin
+test_doctor_reports_mcp_divergence
 test_noop_switch_message
 test_migration_creates_both_links
 test_doctor_flags_dangling_active_home

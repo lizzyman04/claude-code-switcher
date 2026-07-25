@@ -82,6 +82,10 @@ cmd_doctor() {
   _doctor_check_shared
 
   echo ""
+  echo "MCP servers"
+  _doctor_check_mcp
+
+  echo ""
   echo "accounts"
   local provider account home email
   while IFS= read -r provider; do
@@ -126,6 +130,55 @@ _doctor_check_creds() {
   else
     _d_fail "$label: credentials are mode $mode, expected 600"
   fi
+  return 0
+}
+
+# User-scope MCP servers live in .claude.json, which cannot be shared because it
+# carries the account identity. So they do not follow an account switch, and a new
+# account starts with none. Nothing fails and nothing warns during a session --
+# the gap shows up as a tool that is simply missing, and `ccs next` exists for
+# mid-task rotation, which is exactly when that bites.
+#
+# This reports only. Syncing is a separate decision: merging server definitions
+# between config dirs can duplicate or clobber them, so it is not done silently.
+_doctor_check_mcp() {
+  local provider account home names count first_names="" first_account="" diverged=0 reported=0
+
+  if ! command -v jq &>/dev/null; then
+    _d_warn "jq not installed — cannot read per-account MCP servers"
+    return 0
+  fi
+
+  while IFS= read -r provider; do
+    [[ -z "$provider" ]] && continue
+    [[ "$(_provider_auth "$provider")" == "oauth" ]] || continue
+
+    first_names=""
+    first_account=""
+    diverged=0
+    while IFS= read -r account; do
+      [[ -z "$account" ]] && continue
+      home="$(_resolve_home "$provider" "$account")"
+      names="$(_mcp_servers "$home")"
+      count="$(printf '%s' "$names" | grep -c . || true)"
+      echo "  note  $provider@$account: $count user-scope server(s)"
+      reported=1
+      if [[ -z "$first_account" ]]; then
+        first_account="$account"
+        first_names="$names"
+      elif [[ "$names" != "$first_names" ]]; then
+        diverged=1
+      fi
+    done < <(_list_accounts "$provider")
+
+    if [[ $diverged -eq 1 ]]; then
+      _d_warn "$provider: accounts have different MCP servers — they live in"
+      echo "        .claude.json, which is per-account, so they do not follow a switch."
+      echo "        Add one to the account that is missing it: claude mcp add <name> …"
+    fi
+  done < <(_list_providers)
+
+  [[ $reported -eq 1 ]] || _d_pass "no OAuth accounts to compare"
   return 0
 }
 

@@ -170,6 +170,19 @@ function _ActiveHome {
     return ""
 }
 
+# User-scope MCP server names for a home, sorted.
+#
+# These live in .claude.json, which cannot be shared because it carries
+# oauthAccount -- the account identity itself. So they do not follow an account
+# switch, and a freshly created account starts with none. ccs reports the
+# divergence; it does not sync it, because merging server definitions between
+# config dirs can duplicate or clobber them.
+function _McpServers([string]$home) {
+    $json = _ReadJson (_ConfigJson $home)
+    if ($null -eq $json -or $null -eq $json.mcpServers) { return @() }
+    return @($json.mcpServers.PSObject.Properties.Name | Sort-Object)
+}
+
 # ── shared configuration ─────────────────────────────────────────────────────
 
 # Configuration plus work context. projects/ and history.jsonl are shared so a
@@ -1071,6 +1084,34 @@ function Cmd-Doctor {
     } elseif ($sharedBad -eq 0) {
         Write-Host "  ok    $($sharedItems.Count) shared item(s) linked to $DEFAULT_HOME"
     }
+
+    # User-scope MCP servers live in .claude.json, which cannot be shared because
+    # it carries the account identity. They therefore do not follow a switch, and
+    # a new account starts with none. Nothing fails during a session -- the gap
+    # shows up as a tool that is simply missing, and ccs next exists for mid-task
+    # rotation, which is exactly when that bites. Reported, never synced: merging
+    # server definitions between config dirs can duplicate or clobber them.
+    Write-Host ""; Write-Host "MCP servers"
+    $mcpReported = $false
+    foreach ($p in @(_ListProviders)) {
+        if ((_ProviderAuth $p) -ne "oauth") { continue }
+        $firstNames = $null
+        $diverged = $false
+        foreach ($a in @(_ListAccounts $p)) {
+            $names = @(_McpServers (_ResolveHome $p $a))
+            Write-Host "  note  $p@$a`: $($names.Count) user-scope server(s)"
+            $mcpReported = $true
+            if ($null -eq $firstNames) { $firstNames = $names }
+            elseif (($names -join "`n") -ne ($firstNames -join "`n")) { $diverged = $true }
+        }
+        if ($diverged) {
+            Write-Host "  warn  $p`: accounts have different MCP servers - they live in"
+            Write-Host "        .claude.json, which is per-account, so they do not follow a switch."
+            Write-Host "        Add one to the account that is missing it: claude mcp add <name> ..."
+            $warnings++
+        }
+    }
+    if (-not $mcpReported) { Write-Host "  ok    no OAuth accounts to compare" }
 
     Write-Host ""; Write-Host "accounts"
     foreach ($p in @(_ListProviders)) {
