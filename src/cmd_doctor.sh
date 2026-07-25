@@ -288,11 +288,18 @@ _doctor_check_shared() {
         # _relink repairs this on the next switch because nothing can be lost.
         _d_warn "shared/$item is a copy, not a link — repaired by: $repair"
         problems=1 ;;
-      real)
-        # Never auto-repaired: this version differs from the canonical one, and
-        # discarding either without being asked would lose the user's settings.
-        _d_fail "shared/$item is real content that differs from $DEFAULT_HOME/$item"
+      diverged)
+        # Sharing has genuinely stopped. The repair displaces this content rather
+        # than discarding it, so say where it will go before the switch does it.
+        _d_fail "shared/$item is a file that differs from $DEFAULT_HOME/$item"
         echo "        compare: diff '$SHARED_DIR/$item' '$DEFAULT_HOME/$item'"
+        echo "        $repair moves it to backups/displaced/ and restores the link"
+        problems=1 ;;
+      real)
+        # A directory, or something that is not a regular file. Never auto-repaired:
+        # merging two directories is not a choice ccs can make for the user.
+        _d_fail "shared/$item is real content that differs from $DEFAULT_HOME/$item"
+        echo "        compare: diff -r '$SHARED_DIR/$item' '$DEFAULT_HOME/$item'"
         echo "        keep the version you want, move the other aside, then run: $repair"
         problems=1 ;;
     esac

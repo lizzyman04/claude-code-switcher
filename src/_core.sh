@@ -269,8 +269,31 @@ _shared_items() {
   return 0
 }
 
-# Link, but never clobber: if something real sits where a link belongs, say so
-# and leave it. Idempotent, and repairs a dangling link as well as a missing one.
+# `wc -c <` rather than stat, whose size flag differs between GNU and BSD.
+_bytes() { wc -c < "$1" 2>/dev/null | tr -d ' '; }
+
+# Move a degraded shared entry out of the way instead of deleting it. Timestamped
+# because the same item degrades repeatedly, and a second occurrence must not
+# overwrite the evidence from the first. Prints the path it wrote.
+_displace_shared() {
+  local link="$1" item dir dest ts n=1
+  item="${link##*/}"
+  dir="$BACKUPS_DIR/displaced"
+  mkdir -p "$dir" || return 1
+  ts="$(date +%Y%m%d-%H%M%S)"
+  dest="$dir/$item.$ts"
+  # Two degradations inside the same second would otherwise collide.
+  while [[ -e "$dest" ]]; do
+    dest="$dir/$item.$ts.$n"
+    n=$((n + 1))
+  done
+  mv "$link" "$dest" || return 1
+  echo "$dest"
+}
+
+# Link, and never destroy: if something real sits where a link belongs it is
+# either relinked (when that loses nothing) or moved aside, never discarded.
+# Idempotent, and repairs a dangling link as well as a missing one.
 _relink() {
   local target="$1" link="$2"
   if [[ -L "$link" ]]; then
@@ -292,11 +315,30 @@ _relink() {
     rm -f "$link"
     ln -sfn "$target" "$link"
     echo "ccs: relinked $link (was a copy, byte-identical to $target)" >&2
+  elif [[ -f "$link" && -f "$target" ]]; then
+    # Same mechanism, different content -- observed as a two-key stub written over
+    # a 161-line settings.json. Refusing here left the isolated account running
+    # with none of the user's hooks, security guards included, until they noticed
+    # by hand; that recurred three times. Sharing is worth more than the refusal,
+    # so restore it -- but the displaced version is never destroyed, because the
+    # same writer produces this state for a deliberate edit (adding a hook from
+    # inside an isolated account) just as readily as for a fresh-file stub.
+    local kept
+    if kept="$(_displace_shared "$link")"; then
+      ln -sfn "$target" "$link"
+      echo "ccs: $link had been replaced by a file whose content differs" >&2
+      echo "ccs:   moved aside: $kept ($(_bytes "$kept") bytes)" >&2
+      echo "ccs:   relinked, so this account uses $target again ($(_bytes "$target") bytes)" >&2
+      echo "ccs:   if the moved version is the one you want: diff '$kept' '$target'" >&2
+    else
+      echo "ccs: warning: could not move $link aside — leaving it alone" >&2
+      return 1
+    fi
   elif [[ -e "$link" ]]; then
-    # Content differs, or it is a directory: never discarded, because which
-    # version survives is the user's decision, not ccs's.
+    # A directory, or something not a regular file. Divergence between two
+    # directories is a merge, not a choice between versions, so ccs never guesses.
     echo "ccs: warning: $link is real content, not a shared link — leaving it alone" >&2
-    echo "ccs:          compare: diff '$link' '$target'" >&2
+    echo "ccs:          compare: diff -r '$link' '$target'" >&2
     return 1
   else
     ln -sfn "$target" "$link"
@@ -310,11 +352,13 @@ _relink() {
 #   missing   nothing there at all -- the state doctor used to report as intact
 #   dangling  a link whose target is gone
 #   stale     a link pointing somewhere other than ~/.claude/<item>
-#   real      content that differs from the canonical file; never clobbered, so a
-#             switch will not repair it -- the user chooses which version survives
-#
-# A real file whose bytes match the canonical one is reported as ok: _relink
-# repairs that case on the next switch, since relinking loses nothing.
+#   copy      a real file whose bytes match the canonical one; the next switch
+#             relinks it, because relinking loses nothing
+#   diverged  a real file whose content differs; sharing has genuinely stopped,
+#             and the next switch moves it into backups/ and restores the link
+#   real      a directory, or something that is not a regular file, where a link
+#             belongs; never touched, because merging two directories is not a
+#             choice ccs can make for the user
 _shared_status() {
   local item="$1" link="$SHARED_DIR/$item" target="$DEFAULT_HOME/$item"
   if [[ -L "$link" ]]; then
@@ -323,6 +367,9 @@ _shared_status() {
   elif [[ -f "$link" && -f "$target" ]] && cmp -s "$link" "$target"; then
     # Degraded but losslessly repairable -- the next switch relinks it.
     echo copy
+  elif [[ -f "$link" && -f "$target" ]]; then
+    # Sharing has stopped. Repairable too, but only by displacing this content.
+    echo diverged
   elif [[ -e "$link" ]]; then
     echo real
   else

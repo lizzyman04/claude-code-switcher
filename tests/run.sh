@@ -160,24 +160,30 @@ test_doctor_flags_missing_shared() {
     || bad "doctor exits with problems found"
 }
 
-# A real file where a shared link belongs must never be discarded.
-test_doctor_real_file_not_clobbered() {
-  echo "doctor reports a degraded shared item without discarding it (#13)"
+# A real *directory* where a shared link belongs is the one case ccs still
+# refuses: divergence between two directories is a merge, not a choice between
+# two versions, so nothing is moved and nothing is relinked.
+test_doctor_real_dir_not_clobbered() {
+  echo "doctor reports a degraded shared directory without touching it (#13)"
   local h c out
   h="$(new_home shared-real)"
   c="$h/.config/claude-profiles"
   ccs_in "$h" anthropic@second > /dev/null 2>&1
-  rm -f "$c/shared/settings.json"
-  printf '{"hooks":{"custom":1}}\n' > "$c/shared/settings.json"
+  rm -f "$c/shared/agents"
+  mkdir -p "$c/shared/agents"
+  printf '{"mine":1}\n' > "$c/shared/agents/b.json"
 
   out="$(ccs_in "$h" doctor 2>&1)" || true
-  grep -q "FAIL  shared/settings.json is real content that differs" <<< "$out" \
-    && ok "a real file in shared/ is a FAIL" \
-    || bad "a real file in shared/ is a FAIL"
+  grep -q "FAIL  shared/agents is real content that differs" <<< "$out" \
+    && ok "a real directory in shared/ is a FAIL" \
+    || bad "a real directory in shared/ is a FAIL"
 
   ccs_in "$h" anthropic@main > /dev/null 2>&1
-  check "the real file's content survives a switch" \
-    "$(cat "$c/shared/settings.json")" '{"hooks":{"custom":1}}'
+  check "the directory survives a switch untouched" \
+    "$(cat "$c/shared/agents/b.json")" '{"mine":1}'
+  [[ -d "$c/shared/agents" && ! -L "$c/shared/agents" ]] \
+    && ok "and is not relinked behind the user's back" \
+    || bad "and is not relinked behind the user's back"
 }
 
 # A degradation seen twice on a real machine: an external writer resolves one
@@ -216,27 +222,53 @@ test_shared_copy_is_relinked() {
     "$(cat "$h/.claude/settings.json")" '{"hooks":{}}'
 }
 
-# The other half: differing content is still never discarded.
-test_shared_differing_content_is_kept() {
-  echo "differing content in shared/ is never discarded (#13)"
-  local h c out
-  h="$(new_home shared-differs)"
+# Third occurrence, and the shape that matters: the writer left a two-key stub
+# where a 161-line settings.json belonged, so the content differed and the old
+# refuse branch fired. That left the isolated account running with none of the
+# user's hooks until they repaired it by hand -- three times. Sharing is restored
+# automatically now, and the displaced version is preserved, never discarded.
+test_shared_stub_is_displaced_and_relinked() {
+  echo "a diverged shared file is moved aside and relinked (#13)"
+  local h c out one canonical displaced
+  h="$(new_home shared-stub)"
   c="$h/.config/claude-profiles"
+  # A canonical file with real content, so a stub is visibly a loss.
+  printf '{"hooks":{"PreToolUse":[{"guard":1}]},"permissions":{"defaultMode":"x"}}\n' \
+    > "$h/.claude/settings.json"
+  canonical="$(cat "$h/.claude/settings.json")"
   ccs_in "$h" anthropic@second > /dev/null 2>&1
-  rm -f "$c/shared/settings.json"
-  printf '{"hooks":{"mine":1}}\n' > "$c/shared/settings.json"
+
+  # Same mechanism as occurrence 2: resolve one symlink level, rename onto it.
+  one="$(readlink "$c/homes/anthropic-second/settings.json")"
+  printf '{"model":"x"}\n' > "$one.tmp"
+  mv "$one.tmp" "$one"
 
   out="$(ccs_in "$h" doctor 2>&1)" || true
-  check "doctor FAILs and offers a diff" \
-    "$(grep -c "compare: diff " <<< "$out")" "1"
-  check "it is reported as differing, not as a copy" \
-    "$(grep -c 'real content that differs' <<< "$out")" "1"
+  check "doctor FAILs on the diverged file" \
+    "$(grep -c 'shared/settings.json is a file that differs' <<< "$out")" "1"
+  check "and says the repair displaces it" \
+    "$(grep -c 'moves it to backups/displaced/' <<< "$out")" "1"
 
   out="$(ccs_in "$h" anthropic@main 2>&1)" || true
-  check "a switch leaves the content alone" \
-    "$(cat "$c/shared/settings.json")" '{"hooks":{"mine":1}}'
-  check "and the warning names the diff command" \
-    "$(grep -c "compare: diff " <<< "$out")" "1"
+  [[ -L "$c/shared/settings.json" ]] \
+    && ok "the next switch relinks it" \
+    || bad "the next switch relinks it"
+  check "and names what it moved aside" \
+    "$(grep -c 'moved aside: ' <<< "$out")" "1"
+
+  # Preserved, not discarded: the displaced stub is still readable in full.
+  displaced="$(find "$c/backups/displaced" -name 'settings.json.*' 2>/dev/null | head -1)"
+  [[ -n "$displaced" ]] \
+    && ok "the displaced file landed in backups/displaced/" \
+    || bad "the displaced file landed in backups/displaced/"
+  check "with its content intact" "$(cat "$displaced" 2>/dev/null)" '{"model":"x"}'
+
+  # Repair means relink, never overwrite: the canonical file is the one thing
+  # that must come through untouched, since it is what every account now reads.
+  check "the canonical file is never modified" \
+    "$(cat "$h/.claude/settings.json")" "$canonical"
+  check "and the isolated account reads it again" \
+    "$(cat "$c/homes/anthropic-second/settings.json")" "$canonical"
 }
 
 # ── #11: active-home ─────────────────────────────────────────────────────────
@@ -463,9 +495,9 @@ test_migration_creates_both_links
 test_doctor_flags_dangling_active_home
 test_shared_repair_from_native
 test_doctor_flags_missing_shared
-test_doctor_real_file_not_clobbered
+test_doctor_real_dir_not_clobbered
 test_shared_copy_is_relinked
-test_shared_differing_content_is_kept
+test_shared_stub_is_displaced_and_relinked
 
 echo ""
 echo "$_pass passed, $_fail failed"
