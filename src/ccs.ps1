@@ -234,25 +234,57 @@ function _SameFileContent([string]$a, [string]$b) {
 
 # Directories use a junction and files a hard link: both work without elevation
 # or Developer Mode, unlike symlinks. Never clobbers content that differs.
+# Move a degraded shared entry out of the way instead of deleting it. Timestamped
+# because the same item degrades repeatedly, and a second occurrence must not
+# overwrite the evidence from the first. Returns the path it wrote, or $null.
+function _DisplaceShared([string]$link) {
+    $dir = Join-Path $BACKUPS_DIR "displaced"
+    New-Item -ItemType Directory -Force -Path $dir -ErrorAction SilentlyContinue | Out-Null
+    $item = Split-Path $link -Leaf
+    $ts   = Get-Date -Format "yyyyMMdd-HHmmss"
+    $dest = Join-Path $dir "$item.$ts"
+    $n = 1
+    while (Test-Path $dest) { $dest = Join-Path $dir "$item.$ts.$n"; $n++ }
+    try {
+        Move-Item -LiteralPath $link -Destination $dest -Force -ErrorAction Stop
+        return $dest
+    } catch { return $null }
+}
+
 function _LinkItem([string]$target, [string]$link) {
     if (-not (Test-Path $target)) { return }
     $existing = Get-Item $link -Force -ErrorAction SilentlyContinue
     if ($null -ne $existing) {
         if ($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { return }
-        if ($existing.PSIsContainer) { return }
+        if ($existing.PSIsContainer) {
+            # A real directory. Divergence between two directories is a merge
+            # rather than a choice between versions, so ccs never guesses.
+            Write-Host "ccs: warning: $link is real content, not a shared link - leaving it alone" -ForegroundColor Yellow
+            Write-Host "ccs:          compare: robocopy /L /E `"$link`" `"$target`"" -ForegroundColor Yellow
+            return
+        }
         # A plain file where a shared link belongs. If its bytes already match the
-        # canonical file, relinking cannot lose anything, so repair it rather than
-        # demanding hand-repair on every recurrence -- an external writer that
-        # resolves one link level and renames onto shared\<item> produces exactly
-        # this state. Content that differs is never discarded: which version
-        # survives is the user's decision.
+        # canonical file, relinking cannot lose anything, so repair it -- an
+        # external writer that resolves one link level and renames onto
+        # shared\<item> produces exactly this state.
         if (_SameFileContent $link $target) {
             Remove-Item $link -Force -ErrorAction SilentlyContinue
             Write-Host "ccs: relinked $link (was a copy, byte-identical to $target)" -ForegroundColor Yellow
         } else {
-            Write-Host "ccs: warning: $link is real content, not a shared link - leaving it alone" -ForegroundColor Yellow
-            Write-Host "ccs:          compare: fc.exe `"$link`" `"$target`"" -ForegroundColor Yellow
-            return
+            # Content differs, so sharing has genuinely stopped: while it does,
+            # this account runs with none of the hooks in the canonical file.
+            # Restore sharing, but never destroy the displaced version -- the same
+            # writer produces this state for a deliberate edit just as readily as
+            # for a fresh-file stub.
+            $kept = _DisplaceShared $link
+            if ($null -eq $kept) {
+                Write-Host "ccs: warning: could not move $link aside - leaving it alone" -ForegroundColor Yellow
+                return
+            }
+            Write-Host "ccs: $link had been replaced by a file whose content differs" -ForegroundColor Yellow
+            Write-Host "ccs:   moved aside: $kept" -ForegroundColor Yellow
+            Write-Host "ccs:   relinked, so this account uses $target again" -ForegroundColor Yellow
+            Write-Host "ccs:   if the moved version is the one you want: fc.exe `"$kept`" `"$target`"" -ForegroundColor Yellow
         }
     }
     $isDir = (Get-Item $target -Force).PSIsContainer
@@ -270,13 +302,31 @@ function _LinkItem([string]$target, [string]$link) {
 # Classify one entry, for doctor. A shared item is the hinge every isolated home
 # hangs off: while shared\<item> is missing, every home's link to it is broken and
 # that account silently loses the item.
-#   ok       present and, for a directory, a reparse point
-#   missing  nothing there at all -- the state doctor used to skip silently
-#   real     real content where a link belongs; never clobbered, so never auto-repaired
+#   ok        present and, for a directory, a reparse point
+#   missing   nothing there at all -- the state doctor used to skip silently
+#   diverged  a file whose content differs; sharing has stopped, and the next
+#             switch moves it into backups\ and restores the link
+#   real      a directory where a link belongs; never touched, because merging
+#             two directories is not a choice ccs can make for the user
 #
 # Windows caveat: shared files use hard links, which carry no reparse point and
-# are indistinguishable from a copy without comparing file IDs. So for files this
-# detects absence only, not a link that was replaced by a plain copy.
+# are indistinguishable from a copy without comparing file IDs. So a file with
+# matching bytes reports ok -- there is no "copy" state to report here, and none
+# is needed: matching bytes share nothing that a relink would change.
+# What a degraded item actually costs. The old text described a broken link and
+# stopped there, which reads as cosmetic; it is not. settings.json carries hooks
+# and permissions, so while it is degraded the isolated account runs with none of
+# the user's hooks -- security guards among them -- and nothing in the session
+# says so.
+function _SharedItemCost([string]$item) {
+    switch -Regex ($item) {
+        '^settings\.json$'                      { return "isolated accounts run with none of your hooks or permissions" }
+        '^(projects|history\.jsonl|todos|session-env)$' { return "isolated accounts lose your session history - claude --resume will not find it" }
+        '^(agents|skills|commands|plugins)$'    { return "isolated accounts run without your $item" }
+        default                                 { return "isolated accounts do not see your $item" }
+    }
+}
+
 function _SharedStatus([string]$item) {
     $link   = Join-Path $SHARED_DIR $item
     $target = Join-Path $DEFAULT_HOME $item
@@ -290,7 +340,7 @@ function _SharedStatus([string]$item) {
     # next switch), while differing bytes mean sharing has genuinely stopped --
     # which this check previously reported as ok.
     if (_SameFileContent $link $target) { return "ok" }
-    return "real"
+    return "diverged"
 }
 
 function _EnsureShared {
@@ -1115,19 +1165,44 @@ function Cmd-Doctor {
     foreach ($item in $sharedItems) {
         switch (_SharedStatus $item) {
             "missing" {
-                Write-Host "  FAIL  shared\$item is missing - isolated accounts lose it; repair: $repair"
+                Write-Host "  FAIL  shared\$item is missing, so sharing of it has stopped"
+                Write-Host "        $(_SharedItemCost $item)"
+                Write-Host "        repair: $repair"
+                $problems++; $sharedBad++
+            }
+            "diverged" {
+                # Sharing has genuinely stopped. The repair displaces this content
+                # rather than discarding it, so say so before the switch does it.
+                Write-Host "  FAIL  shared\$item is a file that differs from $DEFAULT_HOME\$item"
+                Write-Host "        $(_SharedItemCost $item)"
+                Write-Host "        compare: fc.exe `"$SHARED_DIR\$item`" `"$DEFAULT_HOME\$item`""
+                Write-Host "        $repair moves it to backups\displaced\ and restores the link"
                 $problems++; $sharedBad++
             }
             "real" {
-                # Never auto-repaired: this content differs from the canonical
-                # file, and discarding either unasked loses the user's data.
+                # A directory. Never auto-repaired: merging two directories is not
+                # a choice ccs can make for the user.
                 Write-Host "  FAIL  shared\$item is real content that differs from $DEFAULT_HOME\$item"
-                Write-Host "        compare: fc.exe `"$SHARED_DIR\$item`" `"$DEFAULT_HOME\$item`""
+                Write-Host "        $(_SharedItemCost $item)"
+                Write-Host "        compare: robocopy /L /E `"$SHARED_DIR\$item`" `"$DEFAULT_HOME\$item`""
                 Write-Host "        keep the version you want, move the other aside, then run: $repair"
                 $problems++; $sharedBad++
             }
         }
     }
+
+    # Content a repair moved out of the way. Nothing is broken -- the file is
+    # preserved and sharing is back -- but restoring the link also reverts
+    # whatever the displaced version held, and the line saying so scrolled past
+    # during a switch. Report it here so that stays recoverable.
+    $displacedDir = Join-Path $BACKUPS_DIR "displaced"
+    if (Test-Path $displacedDir) {
+        foreach ($d in @(Get-ChildItem $displacedDir -Force -ErrorAction SilentlyContinue)) {
+            Write-Host "  note  moved aside by a repair, not deleted: $($d.FullName)"
+            Write-Host "        compare with the live one, then delete it once reviewed"
+        }
+    }
+
     if ($sharedItems.Count -eq 0) {
         Write-Host "  warn  nothing to share - $DEFAULT_HOME looks empty"; $warnings++
     } elseif ($sharedBad -eq 0) {
