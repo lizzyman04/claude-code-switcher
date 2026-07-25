@@ -28,7 +28,10 @@ ccs_main() {
       ;;
     help|--help|-h) cmd_help ;;
     *)
-      if [[ -f "$PROFILES_DIR/$1.json" ]]; then
+      # Bare <provider> or <provider>@<account> is shorthand for switch. A known
+      # provider with an unknown account still routes to switch, so the user
+      # gets "account not found" instead of a wall of help text.
+      if _parse_spec "$1" || _provider_exists "${1%%@*}"; then
         cmd_switch "$1"
       else
         cmd_help

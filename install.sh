@@ -36,11 +36,20 @@ chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
 
 echo "Installing default profiles..."
 
+# Only seed a provider that is absent, so re-running the installer never
+# overwrites an account file the user has put an API key in.
 for provider in anthropic deepseek; do
-  curl -fsSL "$RAW_BASE/profiles/$provider.json" -o "$PROFILES_DIR/$provider.json"
+  if [[ ! -d "$PROFILES_DIR/$provider/accounts" ]]; then
+    mkdir -p "$PROFILES_DIR/$provider/accounts"
+    curl -fsSL "$RAW_BASE/profiles/$provider/profile.json" \
+      -o "$PROFILES_DIR/$provider/profile.json"
+    curl -fsSL "$RAW_BASE/profiles/$provider/accounts/main.json" \
+      -o "$PROFILES_DIR/$provider/accounts/main.json"
+  fi
 done
 
-ln -sf "$PROFILES_DIR/anthropic.json" "$CCS_DIR/active"
+[[ -L "$CCS_DIR/active" ]] || \
+  ln -sfn "$PROFILES_DIR/anthropic/accounts/main.json" "$CCS_DIR/active"
 
 if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
   echo ""

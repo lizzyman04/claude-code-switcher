@@ -1,10 +1,20 @@
 cmd_add() {
-  local name="${1:-}"
-  [[ -z "$name" ]] && { echo "usage: ccs add <name>" >&2; exit 1; }
+  local spec="${1:-}"
+  [[ -z "$spec" ]] && { echo "usage: ccs add <provider>[@<account>]" >&2; exit 1; }
+
+  local provider account
+  if [[ "$spec" == *@* ]]; then
+    provider="${spec%%@*}"
+    account="${spec#*@}"
+  else
+    provider="$spec"
+    account="main"
+  fi
+  [[ -n "$provider" && -n "$account" ]] || { echo "usage: ccs add <provider>[@<account>]" >&2; exit 1; }
+
   local path
-  path="$(_profile_path "$name")"
-  [[ -f "$path" ]] && { echo "error: profile '$name' already exists (use: ccs edit $name)" >&2; exit 1; }
-  mkdir -p "$PROFILES_DIR"
+  path="$(_account_path "$provider" "$account")"
+  [[ -f "$path" ]] && { echo "error: '$provider@$account' already exists (use: ccs edit $provider@$account)" >&2; exit 1; }
 
   declare -A PROVIDER_ENV_VARS=(
     ["deepseek"]="DEEPSEEK_API_KEY"
@@ -48,6 +58,8 @@ cmd_add() {
 
   read -rp "SMALL/FAST MODEL: " small_model
 
+  mkdir -p "$(_accounts_dir "$provider")"
+
   cat > "$path" << EOF
 {
   "env": {
@@ -58,5 +70,22 @@ cmd_add() {
   }
 }
 EOF
-  echo "Created: $name"
+
+  # A base URL means a token-auth provider: accounts differ by API key only, so
+  # they need no config-dir isolation.
+  local meta
+  meta="$(_profile_meta "$provider")"
+  if [[ ! -f "$meta" ]]; then
+    local auth="token"
+    [[ -z "$base_url" ]] && auth="oauth"
+    cat > "$meta" << EOF
+{
+  "auth": "$auth",
+  "default_account": "$account",
+  "last_account": "$account"$([[ "$auth" == "oauth" ]] && printf ',\n  "native_account": "%s"' "$account")
+}
+EOF
+  fi
+
+  echo "Created: $provider@$account"
 }

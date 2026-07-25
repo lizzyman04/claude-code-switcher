@@ -1,15 +1,16 @@
 cmd_switch() {
-  local name="${1:-}"
-  if [[ -z "$name" ]]; then
+  local spec="${1:-}"
+  if [[ -z "$spec" ]]; then
     echo "Available profiles:"
     cmd_list
     echo ""
-    echo "Usage: ccs switch <name>"
+    echo "Usage: ccs switch <provider>[@<account>]"
     return 1
   fi
-  local path
-  path="$(_profile_path "$name")"
-  [[ -f "$path" ]] || { echo "error: profile '$name' not found" >&2; exit 1; }
+
+  _resolve_spec_or_die "$spec"
+  local provider="$SPEC_PROVIDER" account="$SPEC_ACCOUNT" path
+  path="$(_account_path "$provider" "$account")"
 
   local token base_url
   token="$(_read_env_field "$path" ANTHROPIC_AUTH_TOKEN)"
@@ -17,12 +18,18 @@ cmd_switch() {
 
   if [[ -n "$base_url" ]]; then
     if [[ -z "$token" || "$token" == '""' ]]; then
-      echo "error: profile '$name' has no API key set" >&2
-      echo "Set it with: ccs key $name" >&2
+      echo "error: '$provider@$account' has no API key set" >&2
+      echo "Set it with: ccs key $provider@$account" >&2
       return 1
     fi
   fi
 
-  ln -sf "$path" "$ACTIVE_LINK"
-  echo "Switched to $name"
+  ln -sfn "$path" "$ACTIVE_LINK"
+  _set_last_account "$provider" "$account"
+
+  if [[ "$(_list_accounts "$provider" | wc -l | tr -d ' ')" -le 1 ]]; then
+    echo "Switched to $provider"
+  else
+    echo "Switched to $provider@$account"
+  fi
 }
