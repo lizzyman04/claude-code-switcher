@@ -14,15 +14,7 @@ ccs_main() {
     run)     cmd_run "${@:2}" ;;
     clean)
       if [[ "${2:-}" == "--restore" ]]; then
-        if [[ -d "$HOME/.claude/agents.ccs-disabled" ]]; then
-          mv "$HOME/.claude/agents.ccs-disabled" "$HOME/.claude/agents"
-          echo "ccs: restored agents"
-        fi
-        if [[ -d "$HOME/.claude/skills.ccs-disabled" ]]; then
-          mv "$HOME/.claude/skills.ccs-disabled" "$HOME/.claude/skills"
-          echo "ccs: restored skills"
-        fi
-        echo "ccs: cleanup complete"
+        cmd_clean_restore
       else
         cmd_clean "${@:2}"
       fi
