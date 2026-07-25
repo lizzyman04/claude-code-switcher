@@ -283,12 +283,17 @@ _doctor_check_shared() {
       stale)
         _d_fail "shared/$item does not point at $DEFAULT_HOME/$item; repair: $repair"
         problems=1 ;;
+      copy)
+        # An external writer replaced the link with a copy of the same bytes.
+        # _relink repairs this on the next switch because nothing can be lost.
+        _d_warn "shared/$item is a copy, not a link — repaired by: $repair"
+        problems=1 ;;
       real)
-        # Never auto-repaired: the real file and the canonical one can differ, and
+        # Never auto-repaired: this version differs from the canonical one, and
         # discarding either without being asked would lose the user's settings.
-        _d_fail "shared/$item is a real file, so it is no longer shared"
-        echo "        compare it with $DEFAULT_HOME/$item, keep the version you want,"
-        echo "        then move the other aside and run: $repair"
+        _d_fail "shared/$item is real content that differs from $DEFAULT_HOME/$item"
+        echo "        compare: diff '$SHARED_DIR/$item' '$DEFAULT_HOME/$item'"
+        echo "        keep the version you want, move the other aside, then run: $repair"
         problems=1 ;;
     esac
   done < <(_shared_items)

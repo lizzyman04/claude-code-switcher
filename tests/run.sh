@@ -171,13 +171,72 @@ test_doctor_real_file_not_clobbered() {
   printf '{"hooks":{"custom":1}}\n' > "$c/shared/settings.json"
 
   out="$(ccs_in "$h" doctor 2>&1)" || true
-  grep -q "FAIL  shared/settings.json is a real file" <<< "$out" \
+  grep -q "FAIL  shared/settings.json is real content that differs" <<< "$out" \
     && ok "a real file in shared/ is a FAIL" \
     || bad "a real file in shared/ is a FAIL"
 
   ccs_in "$h" anthropic@main > /dev/null 2>&1
   check "the real file's content survives a switch" \
     "$(cat "$c/shared/settings.json")" '{"hooks":{"custom":1}}'
+}
+
+# A degradation seen twice on a real machine: an external writer resolves one
+# symlink level and renames its temp file onto shared/<item>, leaving a copy where
+# the link was. ccs never writes there itself -- only `ln -sfn` in _relink does --
+# so it cannot be prevented from inside ccs, but the identical-content case is
+# losslessly repairable and used to demand hand-repair on every recurrence.
+test_shared_copy_is_relinked() {
+  echo "a byte-identical copy in shared/ is relinked (#13)"
+  local h c out
+  h="$(new_home shared-copy)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+
+  # Reproduce the mechanism exactly: resolve the home's link one level, then
+  # rename a temp file onto that path.
+  local one
+  one="$(readlink "$c/homes/anthropic-second/settings.json")"
+  check "the home's link resolves one level to shared/" \
+    "$one" "$c/shared/settings.json"
+  cp "$h/.claude/settings.json" "$one.tmp"
+  mv "$one.tmp" "$one"
+  [[ -L "$c/shared/settings.json" ]] && bad "the copy replaced the link" \
+                                     || ok "the copy replaced the link (degraded state reproduced)"
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "doctor names it a copy, with the repair command" \
+    "$(grep -c 'shared/settings.json is a copy, not a link' <<< "$out")" "1"
+
+  out="$(ccs_in "$h" anthropic@main 2>&1)" || true
+  [[ -L "$c/shared/settings.json" ]] && ok "the next switch relinks it" \
+                                     || bad "the next switch relinks it"
+  check "and says so" "$(grep -c 'was a copy, byte-identical' <<< "$out")" "1"
+  # The canonical content must be intact -- repair means relink, not overwrite.
+  check "the canonical file is untouched" \
+    "$(cat "$h/.claude/settings.json")" '{"hooks":{}}'
+}
+
+# The other half: differing content is still never discarded.
+test_shared_differing_content_is_kept() {
+  echo "differing content in shared/ is never discarded (#13)"
+  local h c out
+  h="$(new_home shared-differs)"
+  c="$h/.config/claude-profiles"
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+  rm -f "$c/shared/settings.json"
+  printf '{"hooks":{"mine":1}}\n' > "$c/shared/settings.json"
+
+  out="$(ccs_in "$h" doctor 2>&1)" || true
+  check "doctor FAILs and offers a diff" \
+    "$(grep -c "compare: diff " <<< "$out")" "1"
+  check "it is reported as differing, not as a copy" \
+    "$(grep -c 'real content that differs' <<< "$out")" "1"
+
+  out="$(ccs_in "$h" anthropic@main 2>&1)" || true
+  check "a switch leaves the content alone" \
+    "$(cat "$c/shared/settings.json")" '{"hooks":{"mine":1}}'
+  check "and the warning names the diff command" \
+    "$(grep -c "compare: diff " <<< "$out")" "1"
 }
 
 # ── #11: active-home ─────────────────────────────────────────────────────────
@@ -405,6 +464,8 @@ test_doctor_flags_dangling_active_home
 test_shared_repair_from_native
 test_doctor_flags_missing_shared
 test_doctor_real_file_not_clobbered
+test_shared_copy_is_relinked
+test_shared_differing_content_is_kept
 
 echo ""
 echo "$_pass passed, $_fail failed"

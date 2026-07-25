@@ -201,9 +201,14 @@ Switching a **provider** updates `active`. Switching an **account** also updates
 
 Every switch also rebuilds `shared/`, from **any** account including
 `anthropic@main`, so a link that went missing is repaired by the next `ccs <p>`.
-`ccs doctor` reports anything it cannot repair on its own — in particular real
-content sitting where a shared link belongs, which is never overwritten because
-your version and the canonical one may differ.
+
+A link there can also be replaced by a **copy** — an external writer that
+resolves one symlink level and renames its temp file onto `shared/<item>` leaves
+a real file where the link was, and sharing silently stops. When that copy is
+byte-identical to `~/.claude/<item>`, relinking loses nothing, so `ccs` repairs it
+on the next switch and says it did. When the two **differ**, `ccs` never touches
+either: `ccs doctor` fails with the `diff` command and you choose which version
+survives.
 
 ### Why accounts need a whole directory
 

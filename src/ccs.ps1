@@ -215,17 +215,45 @@ function _SharedItems {
     return $items
 }
 
+# Byte-for-byte comparison, for deciding whether a degraded shared entry can be
+# relinked without losing anything. Length first, so differing files cost no read.
+function _SameFileContent([string]$a, [string]$b) {
+    try {
+        $ia = Get-Item $a -Force -ErrorAction Stop
+        $ib = Get-Item $b -Force -ErrorAction Stop
+        if ($ia.PSIsContainer -or $ib.PSIsContainer) { return $false }
+        if ($ia.Length -ne $ib.Length) { return $false }
+        $ba = [System.IO.File]::ReadAllBytes($a)
+        $bb = [System.IO.File]::ReadAllBytes($b)
+        for ($i = 0; $i -lt $ba.Length; $i++) {
+            if ($ba[$i] -ne $bb[$i]) { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
 # Directories use a junction and files a hard link: both work without elevation
-# or Developer Mode, unlike symlinks. Never clobbers real content.
+# or Developer Mode, unlike symlinks. Never clobbers content that differs.
 function _LinkItem([string]$target, [string]$link) {
     if (-not (Test-Path $target)) { return }
     $existing = Get-Item $link -Force -ErrorAction SilentlyContinue
     if ($null -ne $existing) {
         if ($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { return }
         if ($existing.PSIsContainer) { return }
-        # A plain file where a shared link belongs: say so, leave it alone.
-        Write-Host "ccs: warning: $link is a real file, not a shared link - leaving it alone" -ForegroundColor Yellow
-        return
+        # A plain file where a shared link belongs. If its bytes already match the
+        # canonical file, relinking cannot lose anything, so repair it rather than
+        # demanding hand-repair on every recurrence -- an external writer that
+        # resolves one link level and renames onto shared\<item> produces exactly
+        # this state. Content that differs is never discarded: which version
+        # survives is the user's decision.
+        if (_SameFileContent $link $target) {
+            Remove-Item $link -Force -ErrorAction SilentlyContinue
+            Write-Host "ccs: relinked $link (was a copy, byte-identical to $target)" -ForegroundColor Yellow
+        } else {
+            Write-Host "ccs: warning: $link is real content, not a shared link - leaving it alone" -ForegroundColor Yellow
+            Write-Host "ccs:          compare: fc.exe `"$link`" `"$target`"" -ForegroundColor Yellow
+            return
+        }
     }
     $isDir = (Get-Item $target -Force).PSIsContainer
     try {
@@ -250,12 +278,19 @@ function _LinkItem([string]$target, [string]$link) {
 # are indistinguishable from a copy without comparing file IDs. So for files this
 # detects absence only, not a link that was replaced by a plain copy.
 function _SharedStatus([string]$item) {
-    $link = Join-Path $SHARED_DIR $item
+    $link   = Join-Path $SHARED_DIR $item
+    $target = Join-Path $DEFAULT_HOME $item
     $it = Get-Item $link -Force -ErrorAction SilentlyContinue
     if ($null -eq $it) { return "missing" }
     if ($it.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { return "ok" }
     if ($it.PSIsContainer) { return "real" }
-    return "ok"
+    # A file with no reparse point is either a hard link or a plain copy, and the
+    # two cannot be told apart without comparing file IDs. Compare content
+    # instead: matching bytes are harmless either way (a copy gets relinked on the
+    # next switch), while differing bytes mean sharing has genuinely stopped --
+    # which this check previously reported as ok.
+    if (_SameFileContent $link $target) { return "ok" }
+    return "real"
 }
 
 function _EnsureShared {
@@ -1084,11 +1119,11 @@ function Cmd-Doctor {
                 $problems++; $sharedBad++
             }
             "real" {
-                # Never auto-repaired: the real content and the canonical content
-                # can differ, and discarding either unasked loses the user's data.
-                Write-Host "  FAIL  shared\$item is real content, so it is no longer shared"
-                Write-Host "        compare it with $DEFAULT_HOME\$item, keep the version you want,"
-                Write-Host "        then move the other aside and run: $repair"
+                # Never auto-repaired: this content differs from the canonical
+                # file, and discarding either unasked loses the user's data.
+                Write-Host "  FAIL  shared\$item is real content that differs from $DEFAULT_HOME\$item"
+                Write-Host "        compare: fc.exe `"$SHARED_DIR\$item`" `"$DEFAULT_HOME\$item`""
+                Write-Host "        keep the version you want, move the other aside, then run: $repair"
                 $problems++; $sharedBad++
             }
         }
