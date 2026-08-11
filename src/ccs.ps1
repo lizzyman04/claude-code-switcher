@@ -163,6 +163,36 @@ function _AccountEmail([string]$home) {
     return [string]$v
 }
 
+# Record that this home has been through Claude Code's first-run wizard.
+#
+# The wizard is gated on hasCompletedOnboarding in the home's OWN .claude.json,
+# and `claude auth login` does not set it -- it writes the credentials and the
+# oauthAccount and nothing else. So an account signed in through `ccs login` still
+# met the wizard's second step, "Select login method", the first time a session
+# started in it: one account, two sign-ins, the second one pointless.
+#
+# Only ever called after a login has succeeded. A home with no credentials needs
+# that wizard, because from inside a session it is the only way to sign in.
+function _MarkOnboarded([string]$home) {
+    $cj = _ConfigJson $home
+    if (-not (Test-Path $cj -PathType Leaf)) { return }
+    $json = _ReadJson $cj
+    if ($null -eq $json) { return }
+    # Already past the wizard, so there is nothing to spare the user.
+    if ($json.hasCompletedOnboarding -eq $true) { return }
+
+    $json | Add-Member -NotePropertyName hasCompletedOnboarding -NotePropertyValue $true -Force
+    # The wizard's other job is picking a theme, so carry the native account's
+    # over rather than dropping a new account onto the default.
+    if (-not $json.theme) {
+        $native = _ReadJson (_ConfigJson $DEFAULT_HOME)
+        if ($null -ne $native -and $native.theme) {
+            $json | Add-Member -NotePropertyName theme -NotePropertyValue $native.theme -Force
+        }
+    }
+    $json | ConvertTo-Json -Depth 100 | Set-Content $cj -Encoding UTF8
+}
+
 function _ActiveHome {
     if (Test-Path $ACTIVE_HOME_FILE -PathType Leaf) {
         return (Get-Content $ACTIVE_HOME_FILE -Raw).Trim()
@@ -752,6 +782,10 @@ function Cmd-Login([string]$spec) {
         try { & claude.exe auth login } finally { $env:CLAUDE_CONFIG_DIR = $prev }
     }
     if ($LASTEXITCODE -ne 0) { Write-Host "error: login failed" -ForegroundColor Red; exit 1 }
+
+    # This account is signed in now, so the first-run wizard has nothing left to
+    # ask -- and asking anyway is how one `ccs login` used to cost two sign-ins.
+    _MarkOnboarded $home
 
     $email = _AccountEmail $home
     if ($email) { Write-Host "ccs: $p@$a is now $email" } else { Write-Host "ccs: $p@$a logged in" }

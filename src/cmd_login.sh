@@ -56,6 +56,10 @@ EOF
   # Claude Code writes credentials 0600 itself; re-assert it rather than assume.
   [[ -f "$home/.credentials.json" ]] && chmod 600 "$home/.credentials.json"
 
+  # This account is signed in now, so the first-run wizard has nothing left to ask
+  # -- and asking anyway is how one `ccs login` used to cost two sign-ins.
+  _mark_onboarded "$home"
+
   local email
   email="$(_account_email "$home")"
   if [[ -n "$email" ]]; then

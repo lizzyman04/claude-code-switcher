@@ -190,6 +190,48 @@ _account_email() {
   fi
 }
 
+# Record that this home has been through Claude Code's first-run wizard.
+#
+# The wizard is gated on hasCompletedOnboarding in the home's OWN .claude.json,
+# and `claude auth login` does not set it -- it writes the credentials and the
+# oauthAccount and nothing else. So an account signed in through `ccs login` still
+# met the wizard's second step, "Select login method", the first time a session
+# started in it: one account, two sign-ins, the second one pointless.
+#
+# Only ever called after a login has succeeded. A home with no credentials needs
+# that wizard, because from inside a session it is the only way to sign in --
+# marking it there would leave the user on "Not logged in" with nothing offering
+# to fix it.
+_mark_onboarded() {
+  local home="$1" cj tmp theme mode
+  cj="$(_config_json "$home")"
+  [[ -f "$cj" ]] || return 0
+  # jq only: .claude.json is large and nested, and a sed rewrite of it is not
+  # something to attempt on the file that carries the account identity.
+  command -v jq &>/dev/null || return 0
+  # Already past the wizard, so there is nothing to spare the user and no reason
+  # to rewrite the file.
+  [[ "$(_json_str "$cj" hasCompletedOnboarding)" == "true" ]] && return 0
+
+  # The wizard's other job is picking a theme, so carry the native account's over
+  # rather than dropping a new account onto the default. Never overwrites one the
+  # home already has.
+  theme="$(_json_str "$HOME/.claude.json" theme)"
+  mode="$(_file_mode "$cj")"
+  tmp="$(mktemp)"
+  if jq --arg t "$theme" \
+        '.hasCompletedOnboarding = true
+         | if ($t != "" and (.theme // "") == "") then .theme = $t else . end' \
+        "$cj" > "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+    mv "$tmp" "$cj"
+    # mktemp is 0600; keep whatever the config had.
+    [[ "$mode" =~ ^[0-7]+$ ]] && chmod "$mode" "$cj"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
 # Names of MCP servers added with `claude mcp add`, sorted, one per line.
 #
 # This is only ONE of the two kinds of entry `claude mcp list` shows, and the

@@ -307,6 +307,49 @@ test_doctor_names_the_native_identity() {
     "$(grep -c 'deepseek@main.*user@example.com' <<< "$out")" "0"
 }
 
+# `claude auth login` writes credentials and oauthAccount, but not
+# hasCompletedOnboarding -- so the first session in a freshly logged-in home ran
+# the first-run wizard, whose second step asks for a login method again.
+test_login_marks_the_home_onboarded() {
+  echo "ccs login leaves the new home past the first-run wizard"
+  local h c bin out cj
+  h="$(new_home login-onboard)"
+  c="$h/.config/claude-profiles"
+  bin="$h/fakebin"
+  mkdir -p "$bin"
+
+  # Stands in for `claude auth login`: writes exactly what the real one writes
+  # into CLAUDE_CONFIG_DIR, and -- the point of the test -- nothing more.
+  cat > "$bin/claude" << 'STUB'
+#!/usr/bin/env bash
+d="${CLAUDE_CONFIG_DIR:?}"
+mkdir -p "$d"
+printf '{"oauthAccount":{"emailAddress":"second@example.com"}}\n' > "$d/.claude.json"
+printf '{"token":"not-a-real-token"}\n' > "$d/.credentials.json"
+STUB
+  chmod +x "$bin/claude"
+  # The native config the new account is cloned alongside.
+  printf '{"hasCompletedOnboarding":true,"theme":"dark-daltonized"}\n' > "$h/.claude.json"
+
+  out="$(HOME="$h" CCS_WRAPPER=1 PATH="$bin:$PATH" "$BIN" login anthropic@third 2>&1)" || true
+  cj="$c/homes/anthropic-third/.claude.json"
+  check "login reports the identity it signed in" \
+    "$(grep -c 'anthropic@third is now second@example.com' <<< "$out")" "1"
+  check "the wizard will not run in the new home" \
+    "$(jq -r '.hasCompletedOnboarding' "$cj" 2>/dev/null)" "true"
+  check "the native theme came across with it" \
+    "$(jq -r '.theme' "$cj" 2>/dev/null)" "dark-daltonized"
+  check "and the identity the login wrote is untouched" \
+    "$(jq -r '.oauthAccount.emailAddress' "$cj" 2>/dev/null)" "second@example.com"
+
+  # A home built by a plain switch has no credentials, so the wizard is the only
+  # way to sign in from inside a session. Marking it there would strand the user.
+  ccs_in "$h" anthropic@second > /dev/null 2>&1
+  check "a switch alone does not mark an unauthenticated home" \
+    "$(jq -r '.hasCompletedOnboarding // "absent"' \
+       "$c/homes/anthropic-second/.claude.json" 2>/dev/null || echo absent)" "absent"
+}
+
 test_doctor_names_the_cost_of_a_missing_item() {
   echo "doctor says what a degraded shared item costs (#13)"
   local h c out
@@ -554,6 +597,7 @@ test_shared_copy_is_relinked
 test_shared_stub_is_displaced_and_relinked
 test_doctor_names_the_cost_of_a_missing_item
 test_doctor_names_the_native_identity
+test_login_marks_the_home_onboarded
 
 echo ""
 echo "$_pass passed, $_fail failed"
